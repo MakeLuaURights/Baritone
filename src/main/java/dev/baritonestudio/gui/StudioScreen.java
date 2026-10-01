@@ -40,6 +40,18 @@ public class StudioScreen extends Screen {
         currentTab = t;
     }
 
+    /** Открыть редактор нового пресета (для тестов и быстрых ссылок). */
+    public void openPresetEditor() {
+        currentTab = TabId.PRESETS;
+        presetsTab.openNewEditor();
+    }
+
+    /** Открыть под-вкладку «Записи»: 0 — повтор, 1 — шаги, 2 — таблички. */
+    public void openRecorderSub(int i) {
+        currentTab = TabId.RECORDER;
+        recorderTab.showSub(i);
+    }
+
     public record Rect(int x, int y, int w, int h) {
         public boolean has(double px, double py) {
             return px >= x && py >= y && px < x + w && py < y + h;

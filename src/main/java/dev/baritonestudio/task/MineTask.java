@@ -5,6 +5,7 @@ import dev.baritonestudio.path.Goal;
 import dev.baritonestudio.path.Navigator;
 import dev.baritonestudio.path.Terrain;
 import dev.baritonestudio.util.L;
+import dev.baritonestudio.util.Storage;
 import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.block.BlockState;
@@ -33,6 +34,8 @@ public final class MineTask extends Task {
     private BlockPos target;
     private int mined;
     private int ticks;
+    private int idle;
+    private boolean finalSweep, finalSweepDone;
     private BlockPos lastMined;
     private String status = "";
 
@@ -92,29 +95,53 @@ public final class MineTask extends Task {
                     phase = replant && lastMined != null ? Phase.REPLANT : (cfg.collectDrops ? Phase.COLLECT : Phase.SCAN);
                     collector.reset();
                     ticks = 0;
+                    idle = 0;
                 }
             }
             case REPLANT -> replant(a, cfg);
             case COLLECT -> {
                 status = L.t("status.collecting");
-                if (collector.tick(a)) phase = Phase.SCAN;
+                if (!collector.tick(a)) {
+                    idle = 0;
+                } else {
+                    // между блоками подбираем только то, что уже выпало; в конце ждём появления дропа (лаг/пинг)
+                    int limit = finalSweep ? 24 + a.latencyTicks() : 0;
+                    if (++idle > limit) phase = Phase.SCAN;
+                }
             }
         }
     }
 
+    /** Перед завершением: один раз ждём и подбираем оставшийся дроп. Возвращает true, если пошли собирать. */
+    private boolean startFinalSweep(ModConfig cfg) {
+        if (finalSweepDone || !cfg.collectDrops || mined == 0) return false;
+        finalSweepDone = true;
+        finalSweep = true;
+        phase = Phase.COLLECT;
+        idle = 0;
+        collector.reset();
+        return true;
+    }
+
     private void scan(Actor a, ModConfig cfg) {
         if (goalCount > 0 && mined >= goalCount) {
+            if (startFinalSweep(cfg)) return;
             finish(L.t("status.mine_done", mined));
             return;
         }
         Terrain t = new Terrain(a.world(), true, false, cfg.maxFall);
         BlockPos found = BlockScanner.nearest(a.world(), a.player().getBlockPos(), radius, matcher, bad, t);
         if (found == null) {
-            if (mined == 0) fail(L.t("status.nothing_found", radius));
-            else finish(L.t("status.no_more", mined));
+            if (mined == 0) {
+                fail(L.t("status.nothing_found", radius));
+            } else {
+                if (startFinalSweep(cfg)) return;
+                finish(L.t("status.no_more", mined));
+            }
             return;
         }
         target = found;
+        Storage.LOG.info("MineTask[{}]: цель {} (добыто {}, исключено {})", title, found.toShortString(), mined, bad.size());
         status = L.t("status.going_to", found.getX(), found.getY(), found.getZ());
         nav.setGoal(new Goal.Adjacent(found));
         phase = Phase.NAV;
@@ -143,6 +170,7 @@ public final class MineTask extends Task {
                 ticks = 0;
             }
             case FAILED -> {
+                Storage.LOG.info("MineTask[{}]: путь к {} не удался: {}", title, target.toShortString(), nav.error);
                 bad.add(target);
                 if (bad.size() > 60) fail(L.t("status.too_many_failures"));
                 phase = Phase.SCAN;
@@ -180,12 +208,13 @@ public final class MineTask extends Task {
         mined++;
         lastMined = target;
         phase = Phase.SETTLE;
-        ticks = 4;
+        ticks = 2;
     }
 
     private void replant(Actor a, ModConfig cfg) {
         phase = cfg.collectDrops ? Phase.COLLECT : Phase.SCAN;
         collector.reset();
+        idle = 0;
         BlockPos farm = lastMined.down();
         BlockState soil = a.world().getBlockState(farm);
         Item seed = soil.isOf(Blocks.SOUL_SAND) ? Items.NETHER_WART : null;

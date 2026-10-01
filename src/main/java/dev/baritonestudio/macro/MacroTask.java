@@ -293,7 +293,7 @@ public final class MacroTask extends Task {
 
             a.useOn(new BlockHitResult(hitVec, side, clickedPos, false));
             clicked = true;
-            verifyAt = stepTicks + 5;
+            verifyAt = stepTicks + 5 + a.latencyTicks();
             return R.RUNNING;
         }
 

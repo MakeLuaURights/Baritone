@@ -27,7 +27,7 @@ final class PresetsTab {
         List<Preset> all = PresetStore.all();
         if (selected == null && !all.isEmpty()) selected = all.get(0);
 
-        int listW = Math.min(190, s.cw / 2 - 4);
+        int listW = Math.max(120, Math.min(190, (int) (s.cw * 0.38)));
         int x0 = s.cx, y0 = s.cy;
 
         // ---- список
@@ -177,6 +177,10 @@ final class PresetsTab {
 
     // ------------------------------------------------------------ редактор
 
+    void openNewEditor() {
+        startNew();
+    }
+
     private void startNew() {
         Preset p = new Preset();
         p.name = L.t("preset.new_name");
@@ -215,37 +219,36 @@ final class PresetsTab {
         int off = s.beginScroll("presets.editor", x - 2, y + 14, w + 4, availH, editorH);
         int top = y + 16 - off;
         int yy = top;
-        int cw = w - 6;
-        int lw = 70;
-        int fw = cw - lw;
+        int cw = w - 8;
 
-        s.text(L.t("preset.editor.name"), x, yy + 5, 0xFFC4CED8);
-        s.field("pe.name", x + lw, yy, fw, 16, L.t("preset.editor.name"), p.name);
-        yy += 21;
+        s.text(L.t("preset.editor.name"), x, yy, 0xFFC4CED8);
+        s.field("pe.name", x, yy + 10, cw, 16, L.t("preset.editor.name"), p.name);
+        yy += 30;
 
-        s.text(L.t("preset.editor.icon"), x, yy + 5, 0xFFC4CED8);
-        s.field("pe.icon", x + lw, yy, fw - 22, 16, "minecraft:stone", p.icon);
-        s.drawItem(s.fieldText("pe.icon").trim(), x + cw - 18, yy);
-        yy += 21;
+        s.text(L.t("preset.editor.icon"), x, yy, 0xFFC4CED8);
+        s.field("pe.icon", x, yy + 10, cw - 22, 16, "minecraft:stone", p.icon);
+        s.drawItem(s.fieldText("pe.icon").trim(), x + cw - 18, yy + 9);
+        yy += 30;
 
-        s.text(L.t("preset.editor.type"), x, yy + 5, 0xFFC4CED8);
-        s.button(x + lw, yy, fw, 16, summary(p), Style.NORMAL, true, () -> {
+        s.text(L.t("preset.editor.type"), x, yy, 0xFFC4CED8);
+        s.button(x, yy + 10, cw, 16, summary(p), Style.NORMAL, true, () -> {
             Preset.Type[] t = Preset.Type.values();
             p.type = t[(p.type.ordinal() + 1) % t.length];
         });
-        yy += 21;
+        yy += 30;
 
         if (p.type == Preset.Type.MINE) {
-            s.text(L.t("preset.editor.blocks"), x, yy + 5, 0xFFC4CED8);
-            s.field("pe.blocks", x + lw, yy, fw, 16, "stone, #minecraft:logs, wheat[age=7]", String.join(", ", p.blocks));
-            yy += 19;
+            s.text(L.t("preset.editor.blocks"), x, yy, 0xFFC4CED8);
+            s.field("pe.blocks", x, yy + 10, cw, 16, "stone, #minecraft:logs, wheat[age=7]", String.join(", ", p.blocks));
+            yy += 30;
             BlockMatcher m = BlockMatcher.parse(parseBlocks());
             if (!m.invalid.isEmpty()) {
-                s.wrapped(L.t("preset.editor.unknown", String.join(", ", m.invalid)), x, yy, cw, Ui.DANGER, 2);
+                int n = s.wrapped(L.t("preset.editor.unknown", String.join(", ", m.invalid)), x, yy - 2, cw, Ui.DANGER, 3);
+                yy += n * 11 + 4;
             } else {
-                s.wrapped(L.t("preset.editor.blocks_hint"), x, yy, cw, Ui.DIM, 2);
+                int n = s.wrapped(L.t("preset.editor.blocks_hint"), x, yy - 2, cw, Ui.DIM, 3);
+                yy += n * 11 + 4;
             }
-            yy += 24;
         }
 
         String cl = switch (p.type) {
@@ -257,12 +260,12 @@ final class PresetsTab {
         if (p.type != Preset.Type.COLLECT) {
             s.text(s.trim(cl, cw - 62), x, yy + 5, 0xFFC4CED8);
             s.field("pe.count", x + cw - 56, yy, 56, 16, "0", Integer.toString(p.count));
-            yy += 21;
+            yy += 22;
         }
         if (p.type == Preset.Type.MINE || p.type == Preset.Type.COLLECT) {
             s.text(s.trim(L.t("preset.param.radius"), cw - 62), x, yy + 5, 0xFFC4CED8);
             s.field("pe.radius", x + cw - 56, yy, 56, 16, L.t("preset.param.auto"), Integer.toString(p.radius));
-            yy += 21;
+            yy += 22;
         }
         if (p.type == Preset.Type.MINE) {
             s.toggle(x, yy, cw, L.t("preset.editor.replant"), p.replant, v -> p.replant = v);

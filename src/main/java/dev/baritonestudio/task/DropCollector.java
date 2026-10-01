@@ -49,6 +49,7 @@ public final class DropCollector {
             if (best == null) return true;
             target = best;
             ticks = 0;
+            dev.baritonestudio.util.Storage.LOG.info("DropCollector: предмет {} в {} {} {}", best.getStack(), best.getBlockX(), best.getBlockY(), best.getBlockZ());
             nav.setGoal(new Goal.Near(best.getBlockX(), best.getBlockY(), best.getBlockZ(), 1));
         }
         if (++ticks > 160) {

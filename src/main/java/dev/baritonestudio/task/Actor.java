@@ -73,7 +73,7 @@ public final class Actor {
         o.sneakKey.setPressed(false);
         anyKeyHeld = false;
         fwd = sprint = jump = sneak = false;
-        KeyBinding.updatePressedStates();
+        if (mc.currentScreen == null) KeyBinding.updatePressedStates();
     }
 
     // ---------------------------------------------------------------- взгляд
@@ -202,6 +202,13 @@ public final class Actor {
 
     public boolean hasScaffold() {
         return hasItem(Actor::isScaffold);
+    }
+
+    /** Задержка до сервера в тиках — чтобы не считать ответ сервера опоздавшим. */
+    public int latencyTicks() {
+        if (mc.getNetworkHandler() == null || mc.player == null) return 0;
+        var e = mc.getNetworkHandler().getPlayerListEntry(mc.player.getUuid());
+        return e == null ? 0 : Math.min(10, e.getLatency() / 50);
     }
 
     public boolean inventoryFull() {

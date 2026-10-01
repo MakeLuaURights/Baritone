@@ -41,6 +41,11 @@ public final class TaskManager {
         current = t;
         last = t;
         startedAt = mc.world.getTime();
+        // путь строится для хождения по земле – выключаем полёт (креатив)
+        if (mc.player.getAbilities().flying) {
+            mc.player.getAbilities().flying = false;
+            mc.player.sendAbilitiesUpdate();
+        }
         t.start(actor);
         say(Formatting.AQUA, L.t("msg.started", t.name()));
         if (t.isDone()) finishCurrent();
@@ -97,6 +102,7 @@ public final class TaskManager {
         t.stop(actor);
         actor.releaseKeys();
         current = null;
+        dev.baritonestudio.util.Storage.LOG.info("Задача «{}» завершена за {} тиков", t.name(), mc.world != null ? mc.world.getTime() - startedAt : -1);
         if (t.isFailed()) say(Formatting.RED, L.t("msg.failed", t.name(), t.result()));
         else say(Formatting.GREEN, L.t("msg.finished", t.name(), t.result()));
     }

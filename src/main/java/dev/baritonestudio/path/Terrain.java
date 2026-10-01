@@ -5,6 +5,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.FallingBlock;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
@@ -84,6 +85,7 @@ public final class Terrain {
         if (s.isAir() || s.getFluidState().isIn(FluidTags.LAVA)) return false;
         if (s.getHardness(world, m.set(x, y, z)) < 0) return false;
         if (s.hasBlockEntity()) return false;
+        if (isStructure(s)) return false;
         if (s.getBlock() == Blocks.SPAWNER || s.getBlock() == Blocks.TRIAL_SPAWNER) return false;
         // не вскрываем лаву: если рядом лава, то ломать нельзя
         for (Direction d : Direction.values()) {
@@ -91,6 +93,20 @@ public final class Terrain {
             if (isLava(n)) return false;
         }
         return true;
+    }
+
+    /** Блоки, похожие на часть постройки: их по пути не ломаем (двери, заборы, лестницы, рельсы...). */
+    private static boolean isStructure(BlockState s) {
+        return s.isIn(BlockTags.DOORS) || s.isIn(BlockTags.TRAPDOORS) || s.isIn(BlockTags.FENCE_GATES)
+                || s.isIn(BlockTags.FENCES) || s.isIn(BlockTags.WALLS) || s.isIn(BlockTags.BEDS)
+                || s.isIn(BlockTags.CLIMBABLE) || s.isIn(BlockTags.RAILS) || s.isIn(BlockTags.BUTTONS)
+                || s.isIn(BlockTags.PRESSURE_PLATES) || s.isIn(BlockTags.ALL_SIGNS) || s.isIn(BlockTags.BANNERS)
+                || s.isIn(BlockTags.CANDLES) || s.isIn(BlockTags.FLOWER_POTS) || s.isIn(BlockTags.CAULDRONS)
+                || s.isIn(BlockTags.ANVIL) || s.isIn(BlockTags.SHULKER_BOXES) || s.isIn(BlockTags.CAMPFIRES)
+                || s.isIn(BlockTags.ALL_HANGING_SIGNS) || s.isIn(BlockTags.CANDLE_CAKES)
+                || s.isOf(Blocks.CRAFTING_TABLE) || s.isOf(Blocks.LANTERN) || s.isOf(Blocks.SOUL_LANTERN)
+                || s.isOf(Blocks.GLASS_PANE) || s.isOf(Blocks.IRON_BARS) || s.isOf(Blocks.OBSIDIAN)
+                || s.isOf(Blocks.CRYING_OBSIDIAN) || s.isOf(Blocks.RESPAWN_ANCHOR) || s.isOf(Blocks.LODESTONE);
     }
 
     /** Стоимость освобождения клетки: 0 если проходима, иначе стоимость ломания, либо {@link #INF}. */

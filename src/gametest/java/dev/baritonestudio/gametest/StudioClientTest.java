@@ -97,12 +97,109 @@ public class StudioClientTest implements FabricClientGameTest {
             ctx.runOnClient(mc -> Studio.get().startPreset(PresetStore.find("diamond"), 1, 20));
             waitTaskEnd(ctx, 2400, "Добыча алмазов");
             int dia = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.DIAMOND));
+            if (dia < 1) {
+                String dump = ctx.computeOnClient(mc -> {
+                    StringBuilder sb = new StringBuilder("игрок " + mc.player.getBlockPos() + "; предметы: ");
+                    for (var e : mc.world.getEntitiesByClass(net.minecraft.entity.ItemEntity.class, mc.player.getBoundingBox().expand(20), x -> true)) {
+                        sb.append(e.getStack()).append("@").append(e.getBlockPos()).append(" ");
+                    }
+                    return sb.toString();
+                });
+                System.out.println("[E2E] DUMP " + dump);
+            }
             check(dia >= 1, "нет алмаза: " + dia);
+
+            // ---------- высокое дерево (нужен столб из блоков)
+            testTree(ctx, srv, base);
+
+            // ---------- клик мышью по меню
+            testMouse(ctx);
+
+            // ---------- перенастройка клавиши меню
+            testRebind(ctx);
 
             // ---------- запись и повтор
             testMacro(ctx, srv, base);
             ctx.takeScreenshot("99-end");
         }
+    }
+
+    private void testTree(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
+        BlockPos trunk = base.add(0, 0, 12);
+        srv.runCommand("tp @a " + fmt(base.add(0, 0, 8)));
+        fill(srv, trunk, trunk.add(0, 6, 0), "minecraft:oak_log");
+        srv.runCommand("clear @a");
+        srv.runCommand("give @a minecraft:iron_axe");
+        srv.runCommand("give @a minecraft:dirt 16");
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> Studio.get().startPreset(PresetStore.find("wood"), 7, 20));
+        waitTaskEnd(ctx, 3600, "Рубка дерева");
+        int logs = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.OAK_LOG));
+        System.out.println("[E2E] logs: " + logs);
+        check(logs >= 7, "срублено брёвен: " + logs);
+    }
+
+    private void testRebind(ClientGameTestContext ctx) {
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen instanceof StudioScreen);
+        ctx.runOnClient(mc -> {
+            try {
+                var f = StudioScreen.class.getDeclaredField("capturing");
+                f.setAccessible(true);
+                f.set(mc.currentScreen, Keys.OPEN);
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        ctx.getInput().pressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_G);
+        ctx.waitTicks(2);
+        String key = ctx.computeOnClient(mc -> Keys.OPEN.getBoundKeyTranslationKey());
+        System.out.println("[E2E] menu key after rebind: " + key);
+        check(key.equals("key.keyboard.g"), "клавиша не перенастроилась: " + key);
+        // новая клавиша закрывает меню
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen == null);
+        // и открывает его снова
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen instanceof StudioScreen);
+        // возвращаем B
+        ctx.runOnClient(mc -> {
+            Keys.OPEN.setBoundKey(Keys.OPEN.getDefaultKey());
+            net.minecraft.client.option.KeyBinding.updateKeysByCode();
+        });
+        ctx.getInput().pressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_B);
+        ctx.waitFor(mc -> mc.currentScreen == null);
+        String back = ctx.computeOnClient(mc -> Keys.OPEN.getBoundKeyTranslationKey());
+        check(back.equals("key.keyboard.b"), "B не вернулась: " + back);
+    }
+
+    private void testMouse(ClientGameTestContext ctx) {
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen instanceof StudioScreen);
+        ctx.waitTicks(3);
+        // вторая вкладка («Запись»)
+        double[] pos = ctx.computeOnClient(mc -> {
+            try {
+                var scr = mc.currentScreen;
+                var fx = StudioScreen.class.getDeclaredField("px");
+                var fy = StudioScreen.class.getDeclaredField("py");
+                fx.setAccessible(true);
+                fy.setAccessible(true);
+                double scale = mc.getWindow().getScaleFactor();
+                return new double[]{((int) fx.get(scr) + 30) * scale, ((int) fy.get(scr) + 36 + 26 + 10) * scale};
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        ctx.getInput().setCursorPos(pos[0], pos[1]);
+        ctx.waitTicks(2);
+        ctx.getInput().pressMouse(0);
+        ctx.waitTicks(3);
+        ctx.takeScreenshot("03-clicked-recorder-tab");
+        // вернём вкладку, закроем
+        StudioScreen.openTab(StudioScreen.TabId.PRESETS);
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen == null);
     }
 
     private void testMacro(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
@@ -176,11 +273,43 @@ public class StudioClientTest implements FabricClientGameTest {
             st.targets.add(first);
             st.addSeries(2, 0, 0, 2);
             st.targets.add(new Target(base.add(0, 1, -4), 3));
-            mc.player.setYaw(-90f);
-            mc.player.setPitch(15f);
         });
-        ctx.waitTicks(5);
+        srv.runCommand("tp @a " + fmt(base.add(-7, 4, 0)) + " -90 22");
+        ctx.waitTicks(8);
         ctx.takeScreenshot("10-preview");
+        srv.runCommand("tp @a " + fmt(base) + " -90 0");
+        ctx.waitTicks(5);
+        // вкладка «Запись» с выбранной записью и целями
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen instanceof StudioScreen);
+        for (int sub = 0; sub < 3; sub++) {
+            int fsub = sub;
+            ctx.runOnClient(mc -> ((StudioScreen) mc.currentScreen).openRecorderSub(fsub));
+            ctx.waitTicks(3);
+            ctx.takeScreenshot("05-recorder-sub" + sub);
+        }
+        ctx.runOnClient(mc -> ((StudioScreen) mc.currentScreen).openPresetEditor());
+        ctx.waitTicks(3);
+        ctx.takeScreenshot("06-preset-editor");
+        // типичное окно 1280x720
+        ctx.getInput().resizeWindow(1280, 720);
+        ctx.waitTicks(5);
+        for (int sub = 0; sub < 3; sub++) {
+            int fsub = sub;
+            ctx.runOnClient(mc -> ((StudioScreen) mc.currentScreen).openRecorderSub(fsub));
+            ctx.waitTicks(3);
+            ctx.takeScreenshot("07-wide-recorder-sub" + sub);
+        }
+        StudioScreen.openTab(StudioScreen.TabId.SETTINGS);
+        ctx.waitTicks(3);
+        ctx.takeScreenshot("08-wide-settings");
+        StudioScreen.openTab(StudioScreen.TabId.PRESETS);
+        ctx.waitTicks(3);
+        ctx.takeScreenshot("08-wide-presets");
+        ctx.getInput().resizeWindow(854, 480);
+        ctx.waitTicks(5);
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen == null);
         ctx.runOnClient(mc -> Studio.get().runMacro());
         ctx.waitTicks(40);
         ctx.takeScreenshot("11-replay");
@@ -189,6 +318,22 @@ public class StudioClientTest implements FabricClientGameTest {
         check(t != null && t.isDone() && !t.isFailed(), "повтор не удался: " + (t == null ? "" : t.result()));
         ctx.waitTicks(10);
         ctx.takeScreenshot("12-after");
+
+        // ---- нет нужного предмета: ждёт и корректно останавливается
+        srv.runCommand("clear @a minecraft:oak_sign");
+        ctx.waitTicks(5);
+        ctx.runOnClient(mc -> {
+            dev.baritonestudio.config.ModConfig.get().itemWaitSeconds = 2;
+            Studio st = Studio.get();
+            st.targets.clear();
+            st.targets.add(new Target(base.add(3, 1, 1), 0));
+            st.runMacro();
+        });
+        ctx.waitFor(mc -> !Studio.get().tasks.busy(), 900);
+        var lt = Studio.get().tasks.last();
+        System.out.println("[E2E] no-item result: failed=" + lt.isFailed() + " " + lt.result());
+        check(lt.isFailed(), "без предмета повтор должен остановиться с ошибкой");
+        ctx.runOnClient(mc -> dev.baritonestudio.config.ModConfig.get().itemWaitSeconds = 30);
 
         int[][] expectedSigns = {{2, 1, -2, 1}, {2, 1, 0, 2}, {2, 1, 2, 3}, {0, 1, -3, 4}};
         for (int[] e : expectedSigns) {
