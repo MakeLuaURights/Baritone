@@ -106,7 +106,7 @@ public final class Studio {
 
     /** Остановить запись; сохраняет и выбирает новую запись. */
     public Macro stopRecording(String name) {
-        Macro m = recorder.stop(name);
+        Macro m = recorder.stop(uniqueName(name));
         if (m == null) {
             say(Formatting.YELLOW, L.t("msg.rec_empty"));
             return null;
@@ -116,6 +116,16 @@ public final class Studio {
         select(m);
         say(Formatting.GREEN, L.t("msg.rec_saved", m.name, m.actionCount()));
         return m;
+    }
+
+    /** Имя, которого нет в библиотеке (иначе файл перезаписал бы чужую запись). */
+    public String uniqueName(String wanted) {
+        List<String> names = new ArrayList<>();
+        for (Macro m : library()) names.add(m.name);
+        String name = wanted;
+        int n = 2;
+        while (names.contains(name)) name = wanted + " (" + n++ + ")";
+        return name;
     }
 
     public String nextMacroName() {

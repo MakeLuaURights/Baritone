@@ -223,7 +223,8 @@ final class RecorderTab {
         yy += 20;
         s.button(x, yy, half, 16, L.t("ui.rename"), Style.NORMAL, true, () -> {
             String nn = s.fieldText("rn.name").trim();
-            if (!nn.isEmpty() && !nn.equals(m.name)) {
+            boolean taken = st.library().stream().anyMatch(o -> o != m && o.name.equals(nn));
+            if (!nn.isEmpty() && !nn.equals(m.name) && !taken) {
                 MacroStore.rename(m, nn);
                 st.reloadLibrary();
                 for (Macro mm : st.library()) if (mm.name.equals(nn)) { st.macro = mm; lastMacro = mm; }

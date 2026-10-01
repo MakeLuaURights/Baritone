@@ -24,6 +24,16 @@ public final class MacroStore {
                 Macro m = Storage.read(p, Macro.class);
                 if (m != null && m.steps != null) {
                     if (m.name == null || m.name.isEmpty()) m.name = p.getFileName().toString().replace(".json", "");
+                    for (Step st : m.steps) {
+                        // защита от ручной правки файла: у табличек всегда ровно 4 строки
+                        String[] fixed = {"", "", "", ""};
+                        if (st.lines != null) {
+                            for (int i = 0; i < 4 && i < st.lines.length; i++) fixed[i] = st.lines[i] == null ? "" : st.lines[i];
+                        }
+                        st.lines = fixed;
+                        if (st.item == null) st.item = "minecraft:air";
+                        if (st.block == null) st.block = "";
+                    }
                     out.add(m);
                 }
             });
