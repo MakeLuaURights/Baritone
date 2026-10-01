@@ -92,6 +92,8 @@ public class StudioClientTest implements FabricClientGameTest {
             int cobble = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.COBBLESTONE));
             System.out.println("[E2E] cobblestone in inventory: " + cobble);
             check(cobble >= 6, "мало булыжника: " + cobble);
+            int leftStone = ctx.computeOnClient(mc -> mc.world.getEntitiesByClass(net.minecraft.entity.ItemEntity.class, mc.player.getBoundingBox().expand(12), x -> true).size());
+            check(leftStone == 0, "после добычи остались неподобранные предметы: " + leftStone);
 
             // ---------- алмазная руда внутри камня (прокапывание)
             ctx.runOnClient(mc -> Studio.get().startPreset(PresetStore.find("diamond"), 1, 20));
@@ -145,12 +147,27 @@ public class StudioClientTest implements FabricClientGameTest {
         srv.runCommand("clear @a");
         srv.runCommand("give @a minecraft:iron_axe");
         srv.runCommand("give @a minecraft:dirt 16");
+        // запас дерева в инвентаре: из него нельзя строить столб (иначе бот срубит собственную опору)
+        srv.runCommand("give @a minecraft:oak_log 16");
+        srv.runCommand("give @a minecraft:oak_planks 16");
         ctx.waitTicks(10);
         ctx.runOnClient(mc -> Studio.get().startPreset(PresetStore.find("wood"), 7, 20));
         waitTaskEnd(ctx, 3600, "Рубка дерева");
         int logs = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.OAK_LOG));
-        System.out.println("[E2E] logs: " + logs);
-        check(logs >= 7, "срублено брёвен: " + logs);
+        int planks = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.OAK_PLANKS));
+        System.out.println("[E2E] logs: " + logs + " planks: " + planks);
+        String itemsDump = ctx.computeOnClient(mc -> {
+            StringBuilder sb = new StringBuilder("player " + mc.player.getBlockPos() + " items: ");
+            for (var e : mc.world.getEntitiesByClass(net.minecraft.entity.ItemEntity.class, mc.player.getBoundingBox().expand(20), x -> true)) {
+                sb.append(e.getStack()).append("@").append(e.getBlockPos()).append(" ");
+            }
+            return sb.toString();
+        });
+        System.out.println("[E2E] TREE " + itemsDump);
+        check(logs == 16 + 7, "брёвна: ожидалось 23 (16 в запасе + 7 срублено), стало " + logs);
+        check(planks == 16, "доски использованы как опора: " + planks);
+        int leftTree = ctx.computeOnClient(mc -> mc.world.getEntitiesByClass(net.minecraft.entity.ItemEntity.class, mc.player.getBoundingBox().expand(12), x -> true).size());
+        check(leftTree == 0, "после рубки остались неподобранные предметы: " + leftTree);
     }
 
     private static void tp(TestServerContext srv, BlockPos p) {
@@ -178,6 +195,24 @@ public class StudioClientTest implements FabricClientGameTest {
         waitTaskEnd(ctx, 900, "Обход воды");
         check(!swam.get(), "бот зашёл в воду при включённом обходе");
         System.out.println("[E2E] water avoided ok");
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- недостижимая цель (остров посреди воды): быстрый отказ, а не блуждание
+        BlockPos isl = base.add(-14, 0, 14);
+        fill(srv, isl, isl.add(8, -1, 8), "water");
+        fill(srv, isl.add(3, -1, 3), isl.add(5, -1, 5), "grass_block");
+        ctx.waitTicks(25);
+        BlockPos islGoal = isl.add(4, 0, 4);
+        tp(srv, base);
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> Studio.get().startGoto(islGoal.getX(), islGoal.getY(), islGoal.getZ()));
+        ctx.waitFor(mc -> !Studio.get().tasks.busy(), 500);
+        var islTask = Studio.get().tasks.last();
+        System.out.println("[E2E] island result: failed=" + islTask.isFailed() + " " + islTask.result());
+        check(islTask.isFailed(), "недостижимая цель должна завершаться отказом");
+        long islTicks = ctx.computeOnClient(mc -> mc.world.getTime()) ;
+        check(islTask.result() != null && !islTask.result().contains("кругу"), "должен быть быстрый отказ, а не хождение кругами: " + islTask.result());
         tp(srv, base);
         ctx.waitTicks(10);
 

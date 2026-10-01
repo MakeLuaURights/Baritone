@@ -182,7 +182,7 @@ public final class Pathfinder {
         if (canPillar && t.solidTop(x, y - 1, z) && !t.water(x, y, z)) {
             double ch = t.clearCost(x, y + 2, z);
             if (ch < Terrain.INF) {
-                relax(goal, nodes, open, n, x, y + 1, z, 4.5 + ch, Move.PILLAR);
+                relax(goal, nodes, open, n, x, y + 1, z, 9.0 + ch, Move.PILLAR);
             }
         }
     }

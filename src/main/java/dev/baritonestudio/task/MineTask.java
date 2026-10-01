@@ -27,7 +27,7 @@ public final class MineTask extends Task {
     private final int radius;
     private final boolean replant;
     private final Navigator nav = new Navigator();
-    private final DropCollector collector = new DropCollector(nav, 10);
+    private final DropCollector collector = new DropCollector(nav, 9);
     private final Set<BlockPos> bad = new HashSet<>();
 
     private Phase phase = Phase.SCAN;
@@ -35,7 +35,10 @@ public final class MineTask extends Task {
     private int mined;
     private int ticks;
     private int idle;
-    private boolean finalSweep, finalSweepDone;
+    private boolean finalSweep, finalSweepDone, expectDrop;
+    private int retries;
+    private java.util.List<BlockPos> cands = java.util.List.of();
+    private float lastHardness;
     private BlockPos lastMined;
     private String status = "";
 
@@ -81,12 +84,14 @@ public final class MineTask extends Task {
     @Override
     public void start(Actor a) {
         nav.breakMode = Navigator.BreakMode.ALWAYS;
+        a.avoidScaffold = matcher;
         if (matcher.isEmpty()) fail(L.t("status.no_blocks_set"));
     }
 
     @Override
     public void stop(Actor a) {
         nav.clear();
+        a.avoidScaffold = null;
     }
 
     @Override
@@ -115,7 +120,7 @@ public final class MineTask extends Task {
                     idle = 0;
                 } else {
                     // между блоками подбираем только то, что уже выпало; в конце ждём появления дропа (лаг/пинг)
-                    int limit = finalSweep ? 24 + a.latencyTicks() : 0;
+                    int limit = finalSweep ? 24 + a.latencyTicks() : (expectDrop ? 4 + a.latencyTicks() : 0);
                     if (++idle > limit) phase = Phase.SCAN;
                 }
             }
@@ -140,8 +145,17 @@ public final class MineTask extends Task {
             return;
         }
         Terrain t = new Terrain(a.world(), true, false, cfg.maxFall);
-        BlockPos found = BlockScanner.nearest(a.world(), a.player().getBlockPos(), radius, matcher, bad, t, region, topDown, cfg.legitMine && region == null);
-        if (found == null) {
+        bad.addAll(a.placedScaffold); // собственные опоры – не цели
+        cands = BlockScanner.nearestN(a.world(), a.player().getBlockPos(), radius, matcher, bad, t, region, topDown,
+                cfg.legitMine && region == null, 8);
+        if (cands.isEmpty() && !bad.isEmpty() && retries < 2) {
+            // «чёрный список» мог набраться из-за временных сбоев – даём второй шанс
+            retries++;
+            Storage.LOG.info("MineTask[{}]: повторная попытка, исключённых целей: {}", title, bad.size());
+            bad.clear();
+            return;
+        }
+        if (cands.isEmpty()) {
             if (mined == 0) {
                 fail(L.t("status.nothing_found", radius));
             } else {
@@ -150,39 +164,65 @@ public final class MineTask extends Task {
             }
             return;
         }
-        target = found;
-        Storage.LOG.info("MineTask[{}]: цель {} (добыто {}, исключено {})", title, found.toShortString(), mined, bad.size());
-        status = L.t("status.going_to", found.getX(), found.getY(), found.getZ());
-        nav.setGoal(new Goal.Adjacent(found));
+        target = cands.get(0);
+        Storage.LOG.info("MineTask[{}]: цель {} из {} кандидатов (добыто {}, исключено {})", title, target.toShortString(), cands.size(), mined, bad.size());
+        status = L.t("status.going_to", target.getX(), target.getY(), target.getZ());
+        // одним поиском выбираем самую дешёвую по длине пути цель среди ближайших кандидатов
+        java.util.List<dev.baritonestudio.path.Goal> goals = new java.util.ArrayList<>();
+        for (BlockPos c : cands) goals.add(new Goal.Adjacent(c));
+        nav.setGoal(goals.size() == 1 ? goals.get(0) : new Goal.Any(goals));
         phase = Phase.NAV;
         ticks = 0;
     }
 
+    /** Выбирает из кандидатов тот блок, к которому мы реально подошли (в зоне досягаемости и видимости). */
+    private BlockPos reachableCandidate(Actor a, boolean requireAdjacent) {
+        BlockPos me = a.player().getBlockPos();
+        for (BlockPos c : cands) {
+            if (!matcher.test(a.world().getBlockState(c))) continue;
+            if (requireAdjacent && new Goal.Adjacent(c).isEnd(me.getX(), me.getY(), me.getZ())) return c;
+            if (!requireAdjacent && a.inReach(c)) {
+                BlockHitResult hit = a.sight(c);
+                if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(c)) return c;
+            }
+        }
+        return null;
+    }
+
     private void navigate(Actor a) {
-        BlockState st = a.world().getBlockState(target);
-        if (!matcher.test(st)) {
+        boolean anyValid = false;
+        for (BlockPos c : cands) if (matcher.test(a.world().getBlockState(c))) anyValid = true;
+        if (!anyValid) {
             phase = Phase.SCAN;
             return;
         }
         // уже в зоне досягаемости и видим блок – копаем сразу
-        if (a.inReach(target)) {
-            BlockHitResult hit = a.sight(target);
-            if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(target)) {
-                nav.clear();
-                phase = Phase.MINE;
-                ticks = 0;
-                return;
-            }
+        BlockPos near = reachableCandidate(a, false);
+        if (near != null) {
+            target = near;
+            nav.clear();
+            phase = Phase.MINE;
+            ticks = 0;
+            return;
         }
         switch (nav.tick(a)) {
             case ARRIVED -> {
+                BlockPos c = reachableCandidate(a, true);
+                if (c == null) c = reachableCandidate(a, false);
+                if (c == null) {
+                    phase = Phase.SCAN;
+                    return;
+                }
+                target = c;
                 phase = Phase.MINE;
                 ticks = 0;
             }
             case FAILED -> {
                 Storage.LOG.info("MineTask[{}]: путь к {} не удался: {}", title, target.toShortString(), nav.error);
-                bad.add(target);
-                if (bad.size() > 60) fail(L.t("status.too_many_failures"));
+                // «не нашли путь ни к одному»: исключаем все кандидаты, иначе – только ближайший
+                if (nav.error.contains("не найден")) bad.addAll(cands);
+                else bad.add(target);
+                if (bad.size() > 80) fail(L.t("status.too_many_failures"));
                 phase = Phase.SCAN;
             }
             default -> {}
@@ -197,18 +237,21 @@ public final class MineTask extends Task {
             return;
         }
         status = L.t("status.mining", st.getBlock().getName().getString());
+        lastHardness = st.getHardness(a.world(), target);
         Actor.MineResult r = a.mine(target);
         if (r == Actor.MineResult.FAIL) {
             // не дотянулись – пробуем подойти
             nav.setGoal(new Goal.Adjacent(target));
             phase = Phase.NAV;
             if (++ticks > 6) {
+                Storage.LOG.info("MineTask[{}]: не дотянуться до {}", title, target.toShortString());
                 bad.add(target);
                 phase = Phase.SCAN;
             }
             return;
         }
         if (++ticks > 600) {
+            Storage.LOG.info("MineTask[{}]: таймаут ломания {}", title, target.toShortString());
             bad.add(target);
             phase = Phase.SCAN;
         }
@@ -217,8 +260,9 @@ public final class MineTask extends Task {
     private void onMined(Actor a, BlockState nowState) {
         mined++;
         lastMined = target;
+        expectDrop = lastHardness > 0f; // у мгновенно ломающихся (трава) дропа обычно нет
         phase = Phase.SETTLE;
-        ticks = Human.get().jitter(2);
+        ticks = Human.get().jitter(2) + (Human.get().on() ? Human.get().thinkPause() : 0);
     }
 
     private void replant(Actor a, ModConfig cfg) {

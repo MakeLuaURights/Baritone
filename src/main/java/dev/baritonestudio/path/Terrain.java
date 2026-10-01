@@ -93,7 +93,7 @@ public final class Terrain {
     public boolean breakable(int x, int y, int z) {
         if (!allowBreak) return false;
         BlockState s = state(x, y, z);
-        if (s.isAir() || s.getFluidState().isIn(FluidTags.LAVA)) return false;
+        if (s.isAir() || s.isLiquid() || s.getFluidState().isIn(FluidTags.LAVA)) return false;
         if (s.getHardness(world, m.set(x, y, z)) < 0) return false;
         if (s.hasBlockEntity()) return false;
         if (isStructure(s)) return false;

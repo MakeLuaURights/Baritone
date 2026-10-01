@@ -51,6 +51,11 @@ public final class Human {
         return 3 + rnd.nextInt(Math.max(1, Math.round(7 * k())));
     }
 
+    /** Короткая «задумчивость» между блоками. */
+    public int thinkPause() {
+        return rnd.nextInt(Math.max(1, Math.round(7 * k()))) + (rnd.nextFloat() < 0.12f ? 6 + rnd.nextInt(14) : 0);
+    }
+
     // ------------------------------------------------------------ прицел
 
     /** Вызывается раз в тик, пока бот двигает прицел. */
@@ -97,6 +102,35 @@ public final class Human {
 
     // ------------------------------------------------------------ ходьба
 
+    private float glanceYaw, glancePitch;
+    private int strafeLeft, strafeDir, untilStrafe = 150;
+
+    public float glanceYaw() {
+        return glanceYaw;
+    }
+
+    public float glancePitch() {
+        return glancePitch;
+    }
+
+    /** Человек на ходу иногда чуть смещается вбок: -1 влево, 1 вправо, 0 — нет. */
+    public int strafe(boolean allowed) {
+        if (!on() || !allowed) {
+            strafeLeft = 0;
+            return 0;
+        }
+        if (strafeLeft > 0) {
+            strafeLeft--;
+            return strafeDir;
+        }
+        if (--untilStrafe <= 0) {
+            strafeLeft = 3 + rnd.nextInt(5);
+            strafeDir = rnd.nextBoolean() ? 1 : -1;
+            untilStrafe = Math.round((90 + rnd.nextInt(260)) / k());
+        }
+        return 0;
+    }
+
     /** true — нужно на мгновение остановиться (как человек, который отвлёкся). */
     public boolean walkPause(boolean allowed) {
         if (!on()) return false;
@@ -106,7 +140,15 @@ public final class Human {
         }
         if (!allowed) return false;
         if (--untilPause <= 0) {
-            pauseLeft = 4 + rnd.nextInt(Math.max(1, Math.round(18 * k())));
+            // при остановке человек оглядывается
+            if (rnd.nextFloat() < 0.65f) {
+                glanceYaw = (12 + rnd.nextInt(55)) * (rnd.nextBoolean() ? 1 : -1);
+                glancePitch = -8 + rnd.nextInt(26);
+            } else {
+                glanceYaw = 0;
+                glancePitch = 0;
+            }
+            pauseLeft = 6 + rnd.nextInt(Math.max(1, Math.round(18 * k())));
             untilPause = Math.round((140 + rnd.nextInt(280)) / k());
         }
         return false;

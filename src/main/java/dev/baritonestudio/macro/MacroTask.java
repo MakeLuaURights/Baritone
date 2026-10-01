@@ -48,6 +48,9 @@ public final class MacroTask extends Task {
     private boolean navStarted, triedNear, clicked, triedOpen;
     private int verifyAt;
     private int needAlign = 3;
+    private boolean postCollect, minedHere;
+    private int collectIdle;
+    private final dev.baritonestudio.task.DropCollector collector = new dev.baritonestudio.task.DropCollector(nav, 6);
     private Vec3d jitterVec;
     private int jitterStep = -1;
 
@@ -100,6 +103,10 @@ public final class MacroTask extends Task {
         clicked = false;
         triedOpen = false;
         verifyAt = 0;
+        postCollect = false;
+        minedHere = false;
+        collectIdle = 0;
+        collector.reset();
         nav.clear();
     }
 
@@ -205,7 +212,25 @@ public final class MacroTask extends Task {
     private R doBreak(Actor a, Step s, Transform tr) {
         BlockPos pos = tr.pos(s);
         BlockState st = a.world().getBlockState(pos);
-        if (st.isAir() || st.isLiquid()) return R.DONE;
+        // после ломания подбираем выпавшее
+        if (postCollect) {
+            status = L.t("status.collecting");
+            if (!collector.tick(a)) {
+                collectIdle = 0;
+            } else if (++collectIdle > 4 + a.latencyTicks()) {
+                return R.DONE;
+            }
+            return R.RUNNING;
+        }
+        if (st.isAir() || st.isLiquid()) {
+            if (minedHere && ModConfig.get().collectDrops) {
+                postCollect = true;
+                collector.reset();
+                collectIdle = 0;
+                return R.RUNNING;
+            }
+            return R.DONE;
+        }
         status = L.t("status.mining", st.getBlock().getName().getString());
         if (st.getHardness(a.world(), pos) < 0) {
             warn(L.t("warn.unbreakable", st.getBlock().getName().getString()));
@@ -214,8 +239,9 @@ public final class MacroTask extends Task {
         Actor.MineResult r = a.inReach(pos) ? a.mine(pos, false) : Actor.MineResult.FAIL;
         switch (r) {
             case DONE:
-                return R.DONE;
+                return R.RUNNING;
             case WORKING:
+                minedHere = true;
                 nav.clear();
                 navStarted = false;
                 return R.RUNNING;

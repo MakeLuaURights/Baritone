@@ -33,10 +33,17 @@ public final class BlockScanner {
      */
     public static BlockPos nearest(ClientWorld w, BlockPos origin, int radius, BlockMatcher m, Set<BlockPos> exclude, Terrain t,
                                    java.util.function.Predicate<BlockPos> region, boolean topDown, boolean legit) {
+        java.util.List<BlockPos> l = nearestN(w, origin, radius, m, exclude, t, region, topDown, legit, 1);
+        return l.isEmpty() ? null : l.get(0);
+    }
+
+    /** Ближайшие n подходящих блоков по возрастанию «расстояния» (для выбора самой дешёвой цели по длине пути). */
+    public static java.util.List<BlockPos> nearestN(ClientWorld w, BlockPos origin, int radius, BlockMatcher m, Set<BlockPos> exclude, Terrain t,
+                                   java.util.function.Predicate<BlockPos> region, boolean topDown, boolean legit, int n) {
+        java.util.List<BlockPos> bestList = new java.util.ArrayList<>();
+        java.util.List<Double> bestDs = new java.util.ArrayList<>();
         int cx0 = (origin.getX() - radius) >> 4, cx1 = (origin.getX() + radius) >> 4;
         int cz0 = (origin.getZ() - radius) >> 4, cz1 = (origin.getZ() + radius) >> 4;
-        BlockPos best = null;
-        double bestD = Double.MAX_VALUE;
         double r2 = (double) radius * radius;
         BlockPos.Mutable mp = new BlockPos.Mutable();
         int bottomSection = w.getBottomSectionCoord();
@@ -62,20 +69,26 @@ public final class BlockScanner {
                                 double d = dx * dx + dy * dy + dz * dz;
                                 if (d > r2) continue;
                                 if (topDown) d = (4096 - y) * 1_000_000.0 + dx * dx + dz * dz;
-                                if (d >= bestD) continue;
+                                if (bestDs.size() >= n && d >= bestDs.get(bestDs.size() - 1)) continue;
                                 mp.set(x, y, z);
                                 if (region != null && !region.test(mp)) continue;
                                 if (legit && !exposed(w, x, y, z)) continue;
                                 if (exclude != null && exclude.contains(mp)) continue;
                                 if (t != null && Terrain.nextToLava(t, x, y, z)) continue;
-                                bestD = d;
-                                best = mp.toImmutable();
+                                int at = 0;
+                                while (at < bestDs.size() && bestDs.get(at) <= d) at++;
+                                bestDs.add(at, d);
+                                bestList.add(at, mp.toImmutable());
+                                if (bestDs.size() > n) {
+                                    bestDs.remove(bestDs.size() - 1);
+                                    bestList.remove(bestList.size() - 1);
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        return best;
+        return bestList;
     }
 }

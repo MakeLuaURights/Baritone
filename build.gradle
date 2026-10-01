@@ -62,3 +62,8 @@ jar {
         rename { "${it}_${project.base.archivesName.get()}" }
     }
 }
+
+// Синхронизатор сети gametest иногда ложно срабатывает на программном рендере (Xvfb) – отключаем для стабильности.
+tasks.matching { it.name == 'runClientGameTest' }.configureEach {
+    if (it.hasProperty('jvmArgs')) it.jvmArgs('-Dfabric.client.gametest.disableNetworkSynchronizer=true')
+}

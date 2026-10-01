@@ -19,6 +19,7 @@ public final class PathFollower {
     private int idx = 0;
     private int stuck = 0;
     private int pillarWait = 0;
+    private int mineTicks = 0;
     private int jumpIdx = -1;
     private double jumpAt = 1.45;
     private Vec3d lastPos = Vec3d.ZERO;
@@ -46,6 +47,7 @@ public final class PathFollower {
         for (int j = Math.min(nodes.size() - 1, idx + 3); j > idx; j--) {
             if (nodes.get(j).equals(pb) && (grounded || path.moves().get(j) == Move.DESCEND)) {
                 idx = j;
+                mineTicks = 0;
                 stuck = 0;
                 pillarWait = 0;
                 break;
@@ -80,6 +82,11 @@ public final class PathFollower {
                     lastError = "не дотянуться до блока";
                     return State.FAILED;
                 }
+                if (r == Actor.MineResult.DONE) continue; // уже сломан (или жидкость) – проверяем следующую клетку
+                if (++mineTicks > 400) {
+                    lastError = "слишком долго ломаю блок на пути";
+                    return State.FAILED;
+                }
                 stuck = 0;
                 return State.RUNNING;
             }
@@ -98,12 +105,15 @@ public final class PathFollower {
                     a.lookAt(dest);
                     a.forward(true);
                 }
-                if (a.selectItem(Actor::isScaffold)) {
+                if (a.selectScaffold()) {
                     a.jump(true);
                     boolean airborne = pos.y - cur.getY() > 0.2;
                     if (airborne && t.passable(cur.getX(), cur.getY(), cur.getZ())) {
                         ActionResult r = a.placeAgainst(cur.down(), Direction.UP);
-                        if (r.isAccepted()) pillarWait = 0;
+                        if (r.isAccepted()) {
+                            pillarWait = 0;
+                            a.placedScaffold.add(cur.toImmutable());
+                        }
                     }
                     if (++pillarWait > 120) {
                         lastError = "не удалось поставить опору";
@@ -131,11 +141,31 @@ public final class PathFollower {
                     jumpIdx = idx;
                     jumpAt = h.jumpDistance();
                 }
-                float rem = a.lookAt(new Vec3d(dest.x, p.getEyeY(), dest.z));
+                Vec3d lookDest = new Vec3d(dest.x, p.getEyeY(), dest.z);
+                float rem;
+                if (pause && (h.glanceYaw() != 0 || h.glancePitch() != 0)) {
+                    rem = a.lookAngles(a.yawTo(lookDest) + h.glanceYaw(), 4f + h.glancePitch());
+                    rem = 0; // осматриваемся – к цели возвращаемся плавно после паузы
+                } else {
+                    rem = a.lookAt(lookDest);
+                }
                 boolean stopForward = mv == Move.DESCEND && p.getBlockX() == next.getX() && p.getBlockZ() == next.getZ() && !grounded;
                 if (!stopForward && !pause && rem < 60f) {
                     a.forward(true);
-                    if (ModConfig.get().sprint && straight && !inWater && p.getHungerManager().canSprint() && h.sprintAllowed()) a.sprint(true);
+                    boolean turnAhead = h.on() && idx + 2 < nodes.size() && hd < 2.3 && turnsAfter(nodes.get(idx), next, nodes.get(idx + 2));
+                    if (ModConfig.get().sprint && straight && !inWater && !turnAhead && p.getHungerManager().canSprint() && h.sprintAllowed()) a.sprint(true);
+                    // лёгкое «виляние» вбок, если по бокам твёрдая земля
+                    int sd = h.strafe(straight && grounded && !inWater && hd > 1.5);
+                    if (sd != 0) {
+                        double yr = Math.toRadians(p.getYaw());
+                        double lx = Math.cos(yr) * sd, lz = Math.sin(yr) * sd; // sd=1 – влево
+                        int bx = (int) Math.floor(pos.x + lx * 0.9), bz = (int) Math.floor(pos.z + lz * 0.9);
+                        int by = p.getBlockY();
+                        if (t.solidTop(bx, by - 1, bz) && t.passable(bx, by, bz) && t.passable(bx, by + 1, bz)) {
+                            if (sd > 0) a.left(true);
+                            else a.right(true);
+                        }
+                    }
                 }
                 if (pause) stuck = 0;
                 if (mv == Move.ASCEND && grounded && hd < jumpAt) a.jump(true);
@@ -155,6 +185,11 @@ public final class PathFollower {
             lastPos = pos;
         }
         return State.RUNNING;
+    }
+
+    private static boolean turnsAfter(BlockPos a, BlockPos b, BlockPos c) {
+        return Integer.signum(b.getX() - a.getX()) != Integer.signum(c.getX() - b.getX())
+                || Integer.signum(b.getZ() - a.getZ()) != Integer.signum(c.getZ() - b.getZ());
     }
 
     private static double horiz(Vec3d p, BlockPos b) {

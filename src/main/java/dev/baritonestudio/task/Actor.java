@@ -31,9 +31,10 @@ public final class Actor {
     public enum MineResult { WORKING, DONE, FAIL }
 
     private final MinecraftClient mc = MinecraftClient.getInstance();
-    private boolean fwd, sprint, jump, sneak, use, anyKeyHeld;
+    private boolean fwd, sprint, jump, sneak, use, left, right, anyKeyHeld;
     private BlockPos humanTarget;
     private int humanWait;
+    private int toolWait;
 
     public ClientPlayerEntity player() {
         return mc.player;
@@ -50,22 +51,26 @@ public final class Actor {
     public void jump(boolean v) { jump = v; }
     public void sneak(boolean v) { sneak = v; }
     public void use(boolean v) { use = v; }
+    public void left(boolean v) { left = v; }
+    public void right(boolean v) { right = v; }
 
     /** Выставить сохранённые флаги в клавиши игры. Вызывается раз в тик после логики задач. */
     public void apply() {
         GameOptions o = mc.options;
-        boolean any = fwd || sprint || jump || sneak || use;
+        boolean any = fwd || sprint || jump || sneak || use || left || right;
         if (any) {
             o.forwardKey.setPressed(fwd);
             o.sprintKey.setPressed(sprint);
             o.jumpKey.setPressed(jump);
             o.sneakKey.setPressed(sneak);
             o.useKey.setPressed(use);
+            o.leftKey.setPressed(left);
+            o.rightKey.setPressed(right);
             anyKeyHeld = true;
         } else if (anyKeyHeld) {
             releaseKeys();
         }
-        fwd = sprint = jump = sneak = use = false;
+        fwd = sprint = jump = sneak = use = left = right = false;
     }
 
     /** Отпустить все клавиши, которые мы нажимали, и вернуть физическое состояние клавиатуры. */
@@ -76,8 +81,10 @@ public final class Actor {
         o.jumpKey.setPressed(false);
         o.sneakKey.setPressed(false);
         o.useKey.setPressed(false);
+        o.leftKey.setPressed(false);
+        o.rightKey.setPressed(false);
         anyKeyHeld = false;
-        fwd = sprint = jump = sneak = use = false;
+        fwd = sprint = jump = sneak = use = left = right = false;
         if (mc.currentScreen == null) KeyBinding.updatePressedStates();
     }
 
@@ -92,6 +99,12 @@ public final class Actor {
         float yaw = (float) (MathHelper.atan2(dz, dx) * 180.0 / Math.PI) - 90.0f;
         float pitch = (float) -(MathHelper.atan2(dy, hd) * 180.0 / Math.PI);
         return lookAngles(yaw, MathHelper.clamp(pitch, -90f, 90f));
+    }
+
+    /** Угол поворота (yaw) в сторону точки. */
+    public float yawTo(Vec3d target) {
+        Vec3d eye = mc.player.getEyePos();
+        return (float) (MathHelper.atan2(target.z - eye.z, target.x - eye.x) * 180.0 / Math.PI) - 90.0f;
     }
 
     public float lookAngles(float yaw, float pitch) {
@@ -158,7 +171,10 @@ public final class Actor {
                 best = i;
             }
         }
-        if (best != cur) moveToSelected(best);
+        if (best != cur) {
+            moveToSelected(best);
+            if (Human.get().on()) toolWait = 2 + Human.get().rnd().nextInt(5);
+        }
     }
 
     private float score(ItemStack s, BlockState state) {
@@ -226,13 +242,39 @@ public final class Actor {
         return false;
     }
 
-    /** Предмет, пригодный как опора для столба. */
-    public static boolean isScaffold(ItemStack s) {
-        return s.getItem() instanceof BlockItem bi && Terrain.scaffoldBlock(bi.getBlock().getDefaultState());
+    /** Позиции блоков-опор, поставленных самим ботом: их не считаем целями добычи. */
+    public final java.util.Set<BlockPos> placedScaffold = new java.util.HashSet<>();
+    /** Блоки, которые текущая задача добывает: ими нельзя строить столб (иначе бот срубит собственную опору). */
+    public BlockMatcher avoidScaffold;
+
+    private static final java.util.Set<net.minecraft.block.Block> CHEAP = java.util.Set.of(
+            net.minecraft.block.Blocks.DIRT, net.minecraft.block.Blocks.COBBLESTONE, net.minecraft.block.Blocks.STONE,
+            net.minecraft.block.Blocks.NETHERRACK, net.minecraft.block.Blocks.COBBLED_DEEPSLATE, net.minecraft.block.Blocks.DEEPSLATE,
+            net.minecraft.block.Blocks.ANDESITE, net.minecraft.block.Blocks.DIORITE, net.minecraft.block.Blocks.GRANITE,
+            net.minecraft.block.Blocks.TUFF, net.minecraft.block.Blocks.COARSE_DIRT, net.minecraft.block.Blocks.BLACKSTONE,
+            net.minecraft.block.Blocks.BASALT, net.minecraft.block.Blocks.END_STONE, net.minecraft.block.Blocks.SANDSTONE);
+
+    /** Допустим ли предмет как опора: цельный несыпучий блок, не дерево и не то, что сейчас добываем. */
+    private boolean scaffoldOk(ItemStack s) {
+        if (!(s.getItem() instanceof BlockItem bi)) return false;
+        BlockState st = bi.getBlock().getDefaultState();
+        if (!Terrain.scaffoldBlock(st)) return false;
+        if (st.isIn(net.minecraft.registry.tag.BlockTags.LOGS) || st.isIn(net.minecraft.registry.tag.BlockTags.PLANKS)) return false;
+        return avoidScaffold == null || !avoidScaffold.test(st);
+    }
+
+    private boolean scaffoldCheap(ItemStack s) {
+        return s.getItem() instanceof BlockItem bi && CHEAP.contains(bi.getBlock()) && scaffoldOk(s);
     }
 
     public boolean hasScaffold() {
-        return hasItem(Actor::isScaffold);
+        return hasItem(this::scaffoldOk);
+    }
+
+    /** Берёт в руку самый дешёвый подходящий блок для столба. */
+    public boolean selectScaffold() {
+        if (hasItem(this::scaffoldCheap)) return selectItem(this::scaffoldCheap);
+        return selectItem(this::scaffoldOk);
     }
 
     /** Задержка до сервера в тиках — чтобы не считать ответ сервера опоздавшим. */
@@ -313,8 +355,9 @@ public final class Actor {
                 humanWait = h.reaction();
             }
             lookAt(h.aimPoint(Vec3d.ofCenter(target), target.asLong()));
-            if (humanWait > 0) {
-                humanWait--;
+            if (humanWait > 0 || toolWait > 0) {
+                if (humanWait > 0) humanWait--;
+                if (toolWait > 0) toolWait--;
                 return MineResult.WORKING;
             }
             if (h.mineHiccup()) return MineResult.WORKING;
