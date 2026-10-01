@@ -17,8 +17,17 @@ public final class Terrain {
     public final boolean allowBreak;
     public final boolean allowScaffold;
     public final int maxFall;
+    public final boolean avoidWater;
+    public final boolean avoidLava;
 
     public Terrain(ClientWorld world, boolean allowBreak, boolean allowScaffold, int maxFall) {
+        this(world, allowBreak, allowScaffold, maxFall,
+                dev.baritonestudio.config.ModConfig.get().avoidWater, dev.baritonestudio.config.ModConfig.get().avoidLava);
+    }
+
+    public Terrain(ClientWorld world, boolean allowBreak, boolean allowScaffold, int maxFall, boolean avoidWater, boolean avoidLava) {
+        this.avoidWater = avoidWater;
+        this.avoidLava = avoidLava;
         this.world = world;
         this.allowBreak = allowBreak;
         this.allowScaffold = allowScaffold;
@@ -55,14 +64,16 @@ public final class Terrain {
         return b == Blocks.FIRE || b == Blocks.SOUL_FIRE || b == Blocks.CAMPFIRE || b == Blocks.SOUL_CAMPFIRE
                 || b == Blocks.SWEET_BERRY_BUSH || b == Blocks.COBWEB || b == Blocks.POWDER_SNOW
                 || b == Blocks.WITHER_ROSE || b == Blocks.MAGMA_BLOCK || b == Blocks.CACTUS
-                || b == Blocks.LAVA || b == Blocks.POINTED_DRIPSTONE || b == Blocks.BUBBLE_COLUMN;
+                || b == Blocks.POINTED_DRIPSTONE || b == Blocks.BUBBLE_COLUMN;
     }
 
     /** Можно ли находиться в этой клетке без коллизии (воздух, трава, вода, открытая дверь...). */
     public boolean passable(int x, int y, int z) {
         BlockState s = state(x, y, z);
         if (s.isAir()) return true;
-        if (isLava(s) || harmful(s)) return false;
+        if (isLava(s)) return !avoidLava;
+        if (harmful(s)) return false;
+        if (avoidWater && isWater(s)) return false;
         return s.getCollisionShape(world, m.set(x, y, z)).isEmpty();
     }
 
@@ -86,6 +97,7 @@ public final class Terrain {
         if (s.getHardness(world, m.set(x, y, z)) < 0) return false;
         if (s.hasBlockEntity()) return false;
         if (isStructure(s)) return false;
+        if (dev.baritonestudio.config.ModConfig.avoidBreakingMatcher().test(s)) return false;
         if (s.getBlock() == Blocks.SPAWNER || s.getBlock() == Blocks.TRIAL_SPAWNER) return false;
         // не вскрываем лаву: если рядом лава, то ломать нельзя
         for (Direction d : Direction.values()) {
@@ -113,7 +125,10 @@ public final class Terrain {
     public static final double INF = 1e9;
 
     public double clearCost(int x, int y, int z) {
-        if (passable(x, y, z)) return water(x, y, z) ? 1.0 : 0.0;
+        if (passable(x, y, z)) {
+            if (isLava(state(x, y, z))) return 40.0;
+            return water(x, y, z) ? 1.0 : 0.0;
+        }
         if (!breakable(x, y, z)) return INF;
         BlockState s = state(x, y, z);
         double c = 4.0 + Math.min(12.0, s.getHardness(world, m.set(x, y, z)) * 1.5);

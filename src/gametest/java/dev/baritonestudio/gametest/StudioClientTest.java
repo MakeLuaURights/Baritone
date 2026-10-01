@@ -106,6 +106,17 @@ public class StudioClientTest implements FabricClientGameTest {
                     return sb.toString();
                 });
                 System.out.println("[E2E] DUMP " + dump);
+                String sdump = srv.computeOnServer(sv -> {
+                    StringBuilder sb = new StringBuilder();
+                    var sw = sv.getOverworld();
+                    var sp = sv.getPlayerManager().getPlayerList().get(0);
+                    sb.append("server player ").append(sp.getEntityPos()).append(" inv-empty-slot=").append(sp.getInventory().getEmptySlot()).append("; ");
+                    for (var e : sw.getEntitiesByClass(net.minecraft.entity.ItemEntity.class, sp.getBoundingBox().expand(20), x -> true)) {
+                        sb.append(e.getStack()).append(" at ").append(e.getEntityPos()).append(" delay=").append(e.cannotPickup()).append(" ");
+                    }
+                    return sb.toString();
+                });
+                System.out.println("[E2E] SERVER DUMP " + sdump);
             }
             check(dia >= 1, "нет алмаза: " + dia);
 
@@ -114,6 +125,9 @@ public class StudioClientTest implements FabricClientGameTest {
 
             // ---------- клик мышью по меню
             testMouse(ctx);
+
+            // ---------- новые возможности
+            testFeatures(ctx, srv, base);
 
             // ---------- перенастройка клавиши меню
             testRebind(ctx);
@@ -137,6 +151,195 @@ public class StudioClientTest implements FabricClientGameTest {
         int logs = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.OAK_LOG));
         System.out.println("[E2E] logs: " + logs);
         check(logs >= 7, "срублено брёвен: " + logs);
+    }
+
+    private static void tp(TestServerContext srv, BlockPos p) {
+        srv.runCommand("tp @a " + p.getX() + " " + p.getY() + " " + p.getZ());
+    }
+
+    private void testFeatures(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
+        var cfg = dev.baritonestudio.config.ModConfig.get();
+        srv.runCommand("gamemode survival @a");
+        srv.runCommand("clear @a");
+        srv.runCommand("give @a minecraft:diamond_pickaxe");
+        srv.runCommand("give @a minecraft:cobblestone 32");
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- обход воды: пруд поперёк пути
+        java.util.concurrent.atomic.AtomicBoolean swam = new java.util.concurrent.atomic.AtomicBoolean();
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            if (mc.player != null && mc.player.isTouchingWater()) swam.set(true);
+        });
+        fill(srv, base.add(3, -1, -3), base.add(4, -1, 3), "water");
+        ctx.waitTicks(20);
+        BlockPos far = base.add(9, 0, 0);
+        ctx.runOnClient(mc -> Studio.get().startGoto(far.getX(), far.getY(), far.getZ()));
+        waitTaskEnd(ctx, 900, "Обход воды");
+        check(!swam.get(), "бот зашёл в воду при включённом обходе");
+        System.out.println("[E2E] water avoided ok");
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- Human-Mode: добыча
+        BlockPos hm = base.add(-9, 0, 5);
+        fill(srv, hm, hm.add(2, 1, 2), "stone");
+        ctx.waitTicks(5);
+        ctx.runOnClient(mc -> {
+            dev.baritonestudio.config.ModConfig.get().humanMode = true;
+            Studio.get().startPreset(PresetStore.find("stone"), 3, 16);
+        });
+        waitTaskEnd(ctx, 1800, "Human-добыча");
+        ctx.runOnClient(mc -> dev.baritonestudio.config.ModConfig.get().humanMode = false);
+        System.out.println("[E2E] human mine ok");
+
+        // ---- legitMine: руда внутри камня не берётся
+        BlockPos lm = base.add(-9, 0, -8);
+        fill(srv, lm, lm.add(2, 2, 2), "stone");
+        srv.runCommand("setblock " + fmt(lm.add(1, 1, 1)) + " minecraft:diamond_ore");
+        ctx.waitTicks(5);
+        ctx.runOnClient(mc -> {
+            dev.baritonestudio.config.ModConfig.get().legitMine = true;
+            Studio.get().startPreset(PresetStore.find("diamond"), 1, 12);
+        });
+        ctx.waitFor(mc -> !Studio.get().tasks.busy(), 200);
+        var lt = Studio.get().tasks.last();
+        ctx.runOnClient(mc -> dev.baritonestudio.config.ModConfig.get().legitMine = false);
+        check(lt.isFailed(), "legitMine должен не находить скрытую руду: " + lt.result());
+        System.out.println("[E2E] legitMine ok: " + lt.result());
+
+        // ---- следовать за существом
+        tp(srv, base);
+        srv.runCommand("summon minecraft:pig " + (base.getX() + 14) + " " + base.getY() + " " + base.getZ() + " {NoAI:1b}");
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> Studio.get().startFollow("pig", 3));
+        ctx.waitFor(mc -> {
+            for (var e : mc.world.getEntitiesByClass(net.minecraft.entity.passive.PigEntity.class, mc.player.getBoundingBox().expand(20), x -> true)) {
+                if (e.distanceTo(mc.player) < 5.5) return true;
+            }
+            return false;
+        }, 700);
+        ctx.runOnClient(mc -> Studio.get().stopAll(null));
+        srv.runCommand("kill @e[type=minecraft:pig]");
+        System.out.println("[E2E] follow ok");
+
+        // ---- исследование
+        tp(srv, base);
+        ctx.waitTicks(10);
+        BlockPos startPos = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        ctx.runOnClient(mc -> Studio.get().startExplore());
+        ctx.waitTicks(500);
+        BlockPos endPos = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        ctx.runOnClient(mc -> Studio.get().stopAll(null));
+        double moved = Math.sqrt(startPos.getSquaredDistance(endPos));
+        System.out.println("[E2E] explore moved " + moved);
+        check(moved > 25, "исследование почти не сдвинулось: " + moved);
+
+        // ---- метки
+        tp(srv, base);
+        ctx.waitTicks(10);
+        BlockPos wpPos = base.add(-4, 0, -12);
+        ctx.runOnClient(mc -> dev.baritonestudio.preset.Waypoints.set("e2e-wp", wpPos));
+        ctx.runOnClient(mc -> Studio.get().gotoWaypoint(dev.baritonestudio.preset.Waypoints.find("e2e-wp")));
+        waitTaskEnd(ctx, 900, "Переход к метке");
+        BlockPos atWp = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        check(atWp.getSquaredDistance(wpPos) <= 2, "не дошёл до метки: " + atWp);
+        System.out.println("[E2E] waypoint ok");
+
+        // ---- на поверхность из закрытой комнаты
+        BlockPos room = base.add(-20, 0, 0);
+        fill(srv, room.add(-3, 0, -3), room.add(3, 4, 3), "stone");
+        fill(srv, room.add(-2, 0, -2), room.add(2, 3, 2), "air");
+        tp(srv, room);
+        ctx.waitTicks(15);
+        ctx.runOnClient(mc -> Studio.get().startSurface());
+        waitTaskEnd(ctx, 1500, "Выход на поверхность");
+        BlockPos sp = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        boolean outside = Math.abs(sp.getX() - room.getX()) > 3 || Math.abs(sp.getZ() - room.getZ()) > 3 || sp.getY() > room.getY() + 4;
+        check(outside, "не вышел из комнаты: " + sp);
+        System.out.println("[E2E] surface ok at " + sp);
+
+        // ---- очистка области
+        BlockPos ca = base.add(8, 0, 8);
+        fill(srv, ca, ca.add(2, 1, 2), "stone");
+        tp(srv, base.add(5, 0, 5));
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> {
+            Studio st = Studio.get();
+            st.selA = ca;
+            st.selB = ca.add(2, 1, 2);
+            st.startClearArea();
+        });
+        waitTaskEnd(ctx, 2400, "Очистка области");
+        boolean cleared = ctx.computeOnClient(mc -> {
+            for (BlockPos p : BlockPos.iterate(ca, ca.add(2, 1, 2))) if (!mc.world.getBlockState(p).isAir()) return false;
+            return true;
+        });
+        check(cleared, "область не очищена");
+        System.out.println("[E2E] clear area ok");
+
+        // ---- заполнение области (плита 3x3 на уровне земли)
+        BlockPos fa = base.add(8, 0, -8);
+        fill(srv, fa, fa.add(2, 0, 2), "air");
+        tp(srv, base.add(5, 0, -5));
+        srv.runCommand("give @a minecraft:cobblestone 32");
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> {
+            Studio st = Studio.get();
+            st.selA = fa;
+            st.selB = fa.add(2, 0, 2);
+            st.startFillArea(Items.COBBLESTONE);
+        });
+        waitTaskEnd(ctx, 2400, "Заполнение области");
+        boolean filled = ctx.computeOnClient(mc -> {
+            for (BlockPos p : BlockPos.iterate(fa, fa.add(2, 0, 2))) if (mc.world.getBlockState(p).isAir()) return false;
+            return true;
+        });
+        check(filled, "область не заполнена");
+        System.out.println("[E2E] fill area ok");
+
+        // ---- выйти, пока не увидели
+        tp(srv, base);
+        ctx.waitTicks(10);
+        java.util.concurrent.atomic.AtomicReference<String> left = new java.util.concurrent.atomic.AtomicReference<>();
+        ctx.runOnClient(mc -> {
+            var c = dev.baritonestudio.config.ModConfig.get();
+            c.leaveOnPlayer = true;
+            c.leaveDistance = 69;
+            c.leaveWhitelist = "Intruder";
+            Studio.get().leaveHandler = left::set;
+            var fake = new net.minecraft.client.network.OtherClientPlayerEntity(mc.world,
+                    new com.mojang.authlib.GameProfile(java.util.UUID.nameUUIDFromBytes("Intruder".getBytes()), "Intruder"));
+            fake.setPosition(mc.player.getX() + 60, mc.player.getY(), mc.player.getZ());
+            mc.world.addEntity(fake);
+            Studio.get().startGoto(base.getX(), base.getY(), base.getZ() + 30);
+        });
+        ctx.waitTicks(20);
+        check(left.get() == null, "друг из белого списка не должен вызывать выход");
+        ctx.runOnClient(mc -> dev.baritonestudio.config.ModConfig.get().leaveWhitelist = "");
+        ctx.waitTicks(10);
+        System.out.println("[E2E] leave reason: " + left.get());
+        check(left.get() != null && left.get().contains("Intruder"), "выход не сработал");
+        ctx.runOnClient(mc -> {
+            var c = dev.baritonestudio.config.ModConfig.get();
+            c.leaveOnPlayer = false;
+            Studio.get().resetLeave();
+            for (var e : new java.util.ArrayList<>(mc.world.getPlayers())) if (e != mc.player) e.discard();
+            Studio.get().leaveHandler = r -> {};
+        });
+        check(!ctx.computeOnClient(mc -> Studio.get().tasks.busy()), "задача должна быть остановлена выходом");
+
+        // ---- автоеда
+        tp(srv, base);
+        srv.runCommand("give @a minecraft:bread 8");
+        srv.runOnServer(sv -> sv.getPlayerManager().getPlayerList().get(0).getHungerManager().setFoodLevel(6));
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> Studio.get().startGoto(base.getX() + 6, base.getY(), base.getZ() + 6));
+        ctx.waitTicks(200);
+        int food = ctx.computeOnClient(mc -> mc.player.getHungerManager().getFoodLevel());
+        System.out.println("[E2E] food after: " + food);
+        check(food > 8, "автоеда не сработала: " + food);
+        ctx.runOnClient(mc -> Studio.get().stopAll(null));
     }
 
     private void testRebind(ClientGameTestContext ctx) {
@@ -203,6 +406,7 @@ public class StudioClientTest implements FabricClientGameTest {
     }
 
     private void testMacro(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
+        ctx.runOnClient(mc -> dev.baritonestudio.config.ModConfig.get().humanMode = true);
         srv.runCommand("gamemode creative @a");
         srv.runCommand("tp @a " + fmt(base) + " -90 0");
         BlockPos wall = base.add(3, 0, 0);

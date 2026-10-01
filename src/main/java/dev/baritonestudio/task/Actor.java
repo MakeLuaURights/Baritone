@@ -31,7 +31,9 @@ public final class Actor {
     public enum MineResult { WORKING, DONE, FAIL }
 
     private final MinecraftClient mc = MinecraftClient.getInstance();
-    private boolean fwd, sprint, jump, sneak, anyKeyHeld;
+    private boolean fwd, sprint, jump, sneak, use, anyKeyHeld;
+    private BlockPos humanTarget;
+    private int humanWait;
 
     public ClientPlayerEntity player() {
         return mc.player;
@@ -47,21 +49,23 @@ public final class Actor {
     public void sprint(boolean v) { sprint = v; }
     public void jump(boolean v) { jump = v; }
     public void sneak(boolean v) { sneak = v; }
+    public void use(boolean v) { use = v; }
 
     /** Выставить сохранённые флаги в клавиши игры. Вызывается раз в тик после логики задач. */
     public void apply() {
         GameOptions o = mc.options;
-        boolean any = fwd || sprint || jump || sneak;
+        boolean any = fwd || sprint || jump || sneak || use;
         if (any) {
             o.forwardKey.setPressed(fwd);
             o.sprintKey.setPressed(sprint);
             o.jumpKey.setPressed(jump);
             o.sneakKey.setPressed(sneak);
+            o.useKey.setPressed(use);
             anyKeyHeld = true;
         } else if (anyKeyHeld) {
             releaseKeys();
         }
-        fwd = sprint = jump = sneak = false;
+        fwd = sprint = jump = sneak = use = false;
     }
 
     /** Отпустить все клавиши, которые мы нажимали, и вернуть физическое состояние клавиатуры. */
@@ -71,8 +75,9 @@ public final class Actor {
         o.sprintKey.setPressed(false);
         o.jumpKey.setPressed(false);
         o.sneakKey.setPressed(false);
+        o.useKey.setPressed(false);
         anyKeyHeld = false;
-        fwd = sprint = jump = sneak = false;
+        fwd = sprint = jump = sneak = use = false;
         if (mc.currentScreen == null) KeyBinding.updatePressedStates();
     }
 
@@ -92,6 +97,8 @@ public final class Actor {
     public float lookAngles(float yaw, float pitch) {
         ClientPlayerEntity p = mc.player;
         float speed = ModConfig.get().rotateSpeed;
+        Human h = Human.get();
+        if (h.on()) return humanLook(p, yaw, pitch, speed, h);
         float dyaw = MathHelper.wrapDegrees(yaw - p.getYaw());
         float dpitch = pitch - p.getPitch();
         if (speed <= 0f) {
@@ -104,6 +111,30 @@ public final class Actor {
         p.setYaw(p.getYaw() + sy);
         p.setPitch(MathHelper.clamp(p.getPitch() + sp, -90f, 90f));
         return Math.max(Math.abs(dyaw - sy), Math.abs(dpitch - sp));
+    }
+
+    /** Плавное наведение «как мышью»: замедление к цели, шум и шаги, кратные чувствительности мыши. */
+    private float humanLook(ClientPlayerEntity p, float yaw, float pitch, float speed, Human h) {
+        h.updateNoise();
+        float dyaw = MathHelper.wrapDegrees(yaw + h.noiseYaw() - p.getYaw());
+        float dpitch = pitch + h.noisePitch() - p.getPitch();
+        float max = (speed <= 0f ? 90f : speed) * (0.55f + h.rnd().nextFloat() * 0.5f);
+        float gain = h.turnGain();
+        float sy = MathHelper.clamp(dyaw * gain, -max, max);
+        float sp = MathHelper.clamp(dpitch * gain, -max, max);
+        float grid = h.mouseStep();
+        sy = quantize(sy, grid, dyaw);
+        sp = quantize(sp, grid, dpitch);
+        p.setYaw(p.getYaw() + sy);
+        p.setPitch(MathHelper.clamp(p.getPitch() + sp, -90f, 90f));
+        return Math.max(Math.abs(dyaw - sy), Math.abs(dpitch - sp));
+    }
+
+    private static float quantize(float step, float grid, float remaining) {
+        float q = Math.round(step / grid) * grid;
+        if (q == 0f && Math.abs(remaining) > grid * 1.5f) q = Math.signum(remaining) * grid;
+        if (Math.abs(remaining) <= grid * 0.5f) return 0f;
+        return q;
     }
 
     // ---------------------------------------------------------------- инвентарь
@@ -275,7 +306,21 @@ public final class Actor {
         BlockState ts = w.getBlockState(target);
         if (ts.getHardness(w, target) < 0) return MineResult.FAIL;
         selectBestTool(ts);
-        lookAt(Vec3d.ofCenter(target));
+        Human h = Human.get();
+        if (h.on()) {
+            if (!target.equals(humanTarget)) {
+                humanTarget = target;
+                humanWait = h.reaction();
+            }
+            lookAt(h.aimPoint(Vec3d.ofCenter(target), target.asLong()));
+            if (humanWait > 0) {
+                humanWait--;
+                return MineResult.WORKING;
+            }
+            if (h.mineHiccup()) return MineResult.WORKING;
+        } else {
+            lookAt(Vec3d.ofCenter(target));
+        }
         mc.interactionManager.updateBlockBreakingProgress(target, face);
         mc.player.swingHand(Hand.MAIN_HAND);
         return MineResult.WORKING;

@@ -25,6 +25,14 @@ public final class BlockMatcher {
 
     private final List<Entry> entries = new ArrayList<>();
     public final List<String> invalid = new ArrayList<>();
+    private boolean all;
+
+    /** Любой блок, который можно сломать (для очистки области). */
+    public static BlockMatcher everything() {
+        BlockMatcher m = new BlockMatcher();
+        m.all = true;
+        return m;
+    }
 
     public static BlockMatcher parse(List<String> specs) {
         BlockMatcher m = new BlockMatcher();
@@ -59,11 +67,12 @@ public final class BlockMatcher {
     }
 
     public boolean isEmpty() {
-        return entries.isEmpty();
+        return entries.isEmpty() && !all;
     }
 
     public boolean test(BlockState st) {
         if (st.isAir()) return false;
+        if (all) return !st.isLiquid() && st.getBlock().getHardness() >= 0;
         for (Entry e : entries) {
             boolean hit = e.block != null ? st.isOf(e.block) : st.isIn(e.tag);
             if (hit && propsMatch(st, e.props)) return true;

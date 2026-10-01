@@ -47,6 +47,13 @@ public final class Hud {
             line(g, tr, x, y, L.t("hud.stop_hint", Keys.STOP.getBoundKeyLocalizedText().getString()), 0xFF8B98A5);
             y += 12;
         }
+        if (st.selecting) {
+            line(g, tr, x, y, L.t("hud.selecting", st.selA == null ? 1 : 2), 0xFF4DE3E3);
+            y += 12;
+            line(g, tr, x, y, L.t("hud.selecting_keys", Keys.TARGET_ADD.getBoundKeyLocalizedText().getString(),
+                    Keys.TARGET_UNDO.getBoundKeyLocalizedText().getString(), Keys.OPEN.getBoundKeyLocalizedText().getString()), 0xFFDDE6EE);
+            y += 12;
+        }
         if (st.targeting) {
             line(g, tr, x, y, L.t("hud.targeting", st.targets.size()), 0xFFFFD84D);
             y += 12;

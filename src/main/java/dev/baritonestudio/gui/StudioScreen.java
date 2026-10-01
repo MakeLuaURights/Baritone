@@ -32,7 +32,7 @@ import net.minecraft.util.Identifier;
  * через вспомогательные методы (button/field/toggle/slider/scroll), которые заодно регистрируют зоны кликов.
  */
 public class StudioScreen extends Screen {
-    public enum TabId { PRESETS, RECORDER, STATUS, SETTINGS }
+    public enum TabId { PRESETS, RECORDER, NAV, STATUS, SETTINGS }
 
     static TabId currentTab = TabId.PRESETS;
 
@@ -86,6 +86,7 @@ public class StudioScreen extends Screen {
 
     final PresetsTab presetsTab = new PresetsTab(this);
     final RecorderTab recorderTab = new RecorderTab(this);
+    final NavTab navTab = new NavTab(this);
     final StatusTab statusTab = new StatusTab(this);
     final SettingsTab settingsTab = new SettingsTab(this);
 
@@ -150,6 +151,7 @@ public class StudioScreen extends Screen {
         switch (currentTab) {
             case PRESETS -> presetsTab.render();
             case RECORDER -> recorderTab.render();
+            case NAV -> navTab.render();
             case STATUS -> statusTab.render();
             case SETTINGS -> settingsTab.render();
         }
@@ -199,10 +201,10 @@ public class StudioScreen extends Screen {
         c.fill(px, py + 28, px + 100, py + ph, Ui.SIDEBAR);
         c.fill(px + 100, py + 28, px + 101, py + ph, Ui.BORDER);
         TabId[] tabs = TabId.values();
-        String[] icons = {"minecraft:iron_pickaxe", "minecraft:writable_book", "minecraft:compass", "minecraft:comparator"};
-        String[] names = {L.t("tab.presets"), L.t("tab.recorder"), L.t("tab.status"), L.t("tab.settings")};
+        String[] icons = {"minecraft:iron_pickaxe", "minecraft:writable_book", "minecraft:filled_map", "minecraft:compass", "minecraft:comparator"};
+        String[] names = {L.t("tab.presets"), L.t("tab.recorder"), L.t("tab.nav"), L.t("tab.status"), L.t("tab.settings")};
         for (int i = 0; i < tabs.length; i++) {
-            int y = py + 36 + i * 26;
+            int y = py + 34 + i * 25;
             TabId t = tabs[i];
             boolean sel = currentTab == t;
             Rect r = new Rect(px + 6, y, 90, 22);

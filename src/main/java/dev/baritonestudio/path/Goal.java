@@ -87,6 +87,60 @@ public interface Goal {
         }
     }
 
+    /** Дойти до точки на карте, высота не важна (для исследования и дальних переходов). */
+    record XZ(int x, int z, int range) implements Goal {
+        @Override
+        public boolean isEnd(int px, int py, int pz) {
+            int dx = px - x, dz = pz - z;
+            return dx * dx + dz * dz <= range * range;
+        }
+
+        @Override
+        public double heuristic(int px, int py, int pz) {
+            return Math.max(0, octile(x - px, z - pz) - range);
+        }
+    }
+
+    /** Выйти на поверхность: клетка на уровне верхнего слоя земли в этой колонке. */
+    record Surface(net.minecraft.client.world.ClientWorld world) implements Goal {
+        private int top(int x, int z) {
+            return world.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING, x, z);
+        }
+
+        @Override
+        public boolean isEnd(int px, int py, int pz) {
+            return py >= top(px, pz);
+        }
+
+        @Override
+        public double heuristic(int px, int py, int pz) {
+            return Math.max(0, top(px, pz) - py) * 2.5;
+        }
+    }
+
+    /** Произвольная цель: условие окончания и эвристика задаются функциями. */
+    record Custom(EndTest end, HeuristicFn h) implements Goal {
+        @FunctionalInterface
+        public interface EndTest {
+            boolean test(int x, int y, int z);
+        }
+
+        @FunctionalInterface
+        public interface HeuristicFn {
+            double apply(int x, int y, int z);
+        }
+
+        @Override
+        public boolean isEnd(int x, int y, int z) {
+            return end.test(x, y, z);
+        }
+
+        @Override
+        public double heuristic(int x, int y, int z) {
+            return h.apply(x, y, z);
+        }
+    }
+
     /** Любая из нескольких целей. */
     record Any(List<Goal> goals) implements Goal {
         @Override

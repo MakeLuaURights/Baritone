@@ -14,6 +14,25 @@ public final class BlockScanner {
     private BlockScanner() {}
 
     public static BlockPos nearest(ClientWorld w, BlockPos origin, int radius, BlockMatcher m, Set<BlockPos> exclude, Terrain t) {
+        return nearest(w, origin, radius, m, exclude, t, null, false, false);
+    }
+
+    /** Есть ли у блока хотя бы одна открытая (не сплошная) грань. */
+    private static boolean exposed(ClientWorld w, int x, int y, int z) {
+        BlockPos.Mutable q = new BlockPos.Mutable();
+        for (net.minecraft.util.math.Direction d : net.minecraft.util.math.Direction.values()) {
+            if (!w.getBlockState(q.set(x + d.getOffsetX(), y + d.getOffsetY(), z + d.getOffsetZ())).isOpaqueFullCube()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * @param region  необязательный фильтр области (null — везде)
+     * @param topDown сначала самые верхние слои (для очистки области сверху вниз)
+     * @param legit   только блоки с открытой гранью (legitMine)
+     */
+    public static BlockPos nearest(ClientWorld w, BlockPos origin, int radius, BlockMatcher m, Set<BlockPos> exclude, Terrain t,
+                                   java.util.function.Predicate<BlockPos> region, boolean topDown, boolean legit) {
         int cx0 = (origin.getX() - radius) >> 4, cx1 = (origin.getX() + radius) >> 4;
         int cz0 = (origin.getZ() - radius) >> 4, cz1 = (origin.getZ() + radius) >> 4;
         BlockPos best = null;
@@ -41,8 +60,12 @@ public final class BlockScanner {
                                 int x = (cx << 4) + lx, y = baseY + ly, z = (cz << 4) + lz;
                                 double dx = x - origin.getX(), dy = (y - origin.getY()) * 1.5, dz = z - origin.getZ();
                                 double d = dx * dx + dy * dy + dz * dz;
-                                if (d > r2 || d >= bestD) continue;
+                                if (d > r2) continue;
+                                if (topDown) d = (4096 - y) * 1_000_000.0 + dx * dx + dz * dz;
+                                if (d >= bestD) continue;
                                 mp.set(x, y, z);
+                                if (region != null && !region.test(mp)) continue;
+                                if (legit && !exposed(w, x, y, z)) continue;
                                 if (exclude != null && exclude.contains(mp)) continue;
                                 if (t != null && Terrain.nextToLava(t, x, y, z)) continue;
                                 bestD = d;

@@ -11,7 +11,12 @@ import dev.baritonestudio.path.Goal;
 import dev.baritonestudio.path.Navigator;
 import dev.baritonestudio.path.Path;
 import dev.baritonestudio.preset.Preset;
+import dev.baritonestudio.task.BlockMatcher;
+import dev.baritonestudio.task.ExploreTask;
+import dev.baritonestudio.task.FillAreaTask;
+import dev.baritonestudio.task.FollowTask;
 import dev.baritonestudio.task.GotoTask;
+import dev.baritonestudio.task.MineTask;
 import dev.baritonestudio.task.Task;
 import dev.baritonestudio.task.TaskManager;
 import dev.baritonestudio.util.L;
@@ -52,6 +57,18 @@ public final class Studio {
     public int manualRot;
     public Target hover;
 
+    /** Выделение области (две угловые точки) для очистки/заполнения. */
+    public boolean selecting;
+    public BlockPos selA, selB, selHover;
+
+    /** Что делать при срабатывании «выйти, пока не увидели»; подменяется в тестах. */
+    public java.util.function.Consumer<String> leaveHandler = reason -> {
+        var handler = mc.getNetworkHandler();
+        if (handler != null) handler.getConnection().disconnect(net.minecraft.text.Text.literal(reason));
+    };
+    private boolean leaveTriggered;
+    public String lastLeaveReason = "";
+
     private List<Macro> library;
 
     private Studio() {}
@@ -90,6 +107,59 @@ public final class Studio {
 
     public void startGoto(int x, int y, int z) {
         tasks.start(new GotoTask(L.t("task.goto", x, y, z), new Goal.Block(x, y, z), false));
+    }
+
+    public void startFollow(String who, int range) {
+        tasks.start(new FollowTask(who, range));
+    }
+
+    public void startExplore() {
+        tasks.start(new ExploreTask());
+    }
+
+    public void startSurface() {
+        if (mc.world == null) return;
+        tasks.start(new GotoTask(L.t("task.surface"), new Goal.Surface(mc.world), true));
+    }
+
+    public void gotoWaypoint(dev.baritonestudio.preset.Waypoints.Waypoint w) {
+        if (!w.dim.isEmpty() && !w.dim.equals(dev.baritonestudio.preset.Waypoints.currentDim())) {
+            say(Formatting.RED, L.t("msg.wp_other_dim", w.dim));
+            return;
+        }
+        startGoto(w.x, w.y, w.z);
+    }
+
+    public boolean hasSelection() {
+        return selA != null && selB != null;
+    }
+
+    public void beginSelecting() {
+        selecting = true;
+        targeting = false;
+        selA = null;
+        selB = null;
+        mc.setScreen(null);
+        say(Formatting.AQUA, L.t("msg.selecting_help"));
+    }
+
+    private java.util.function.Predicate<BlockPos> selRegion() {
+        BlockPos a = selA, b = selB;
+        int x0 = Math.min(a.getX(), b.getX()), x1 = Math.max(a.getX(), b.getX());
+        int y0 = Math.min(a.getY(), b.getY()), y1 = Math.max(a.getY(), b.getY());
+        int z0 = Math.min(a.getZ(), b.getZ()), z1 = Math.max(a.getZ(), b.getZ());
+        return p -> p.getX() >= x0 && p.getX() <= x1 && p.getY() >= y0 && p.getY() <= y1 && p.getZ() >= z0 && p.getZ() <= z1;
+    }
+
+    public void startClearArea() {
+        if (!hasSelection()) return;
+        int far = (int) Math.ceil(Math.sqrt(Math.max(selA.getSquaredDistance(mc.player.getBlockPos()), selB.getSquaredDistance(mc.player.getBlockPos())))) + 4;
+        tasks.start(new MineTask(L.t("task.clear_area"), BlockMatcher.everything(), Math.min(160, far), selRegion(), true));
+    }
+
+    public void startFillArea(net.minecraft.item.Item item) {
+        if (!hasSelection() || item == null) return;
+        tasks.start(new FillAreaTask(selA, selB, item));
     }
 
     public void stopAll(String reason) {
@@ -191,10 +261,16 @@ public final class Studio {
         if (mc.player == null || mc.world == null) return;
 
         handleKeys();
+        guardPlayers();
         tasks.tick();
         recorder.tick();
 
         // цель под прицелом
+        selHover = null;
+        if (selecting && mc.getCameraEntity() != null) {
+            HitResult hr = mc.getCameraEntity().raycast(64.0, 0f, false);
+            if (hr instanceof BlockHitResult bhr && hr.getType() == HitResult.Type.BLOCK) selHover = bhr.getBlockPos();
+        }
         hover = null;
         if (targeting && macro != null && mc.getCameraEntity() != null) {
             HitResult hr = mc.getCameraEntity().raycast(64.0, 0f, false);
@@ -206,11 +282,61 @@ public final class Studio {
         drawWorldOverlays();
     }
 
+    private void drawSelection() {
+        BlockPos a = selA, b = selB != null ? selB : (selecting ? selHover : null);
+        if (a == null) {
+            if (selHover != null) {
+                net.minecraft.world.debug.gizmo.GizmoDrawing.box(selHover, net.minecraft.client.render.DrawStyle.stroked(0xFF55E07A, 2.5f)).ignoreOcclusion();
+            }
+            return;
+        }
+        if (b == null) b = a;
+        net.minecraft.util.math.Box box = new net.minecraft.util.math.Box(
+                Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()), Math.min(a.getZ(), b.getZ()),
+                Math.max(a.getX(), b.getX()) + 1, Math.max(a.getY(), b.getY()) + 1, Math.max(a.getZ(), b.getZ()) + 1);
+        net.minecraft.world.debug.gizmo.GizmoDrawing.box(box, net.minecraft.client.render.DrawStyle.filledAndStroked(0xFF4DE3E3, 2.5f, 0x2A4DE3E3)).ignoreOcclusion();
+    }
+
+    /** «Выйти, пока не увидели»: следим за другими игроками рядом. */
+    private void guardPlayers() {
+        var cfg = dev.baritonestudio.config.ModConfig.get();
+        if (!cfg.leaveOnPlayer || leaveTriggered) return;
+        if (cfg.leaveOnlyWhileWorking && !tasks.busy() && !recorder.active()) return;
+        java.util.Set<String> friends = new java.util.HashSet<>();
+        for (String n : cfg.leaveWhitelist.split(",")) if (!n.isBlank()) friends.add(n.trim().toLowerCase());
+        for (var pl : mc.world.getPlayers()) {
+            if (pl == mc.player || pl.isSpectator()) continue;
+            String name = pl.getGameProfile().name();
+            if (friends.contains(name.toLowerCase())) continue;
+            double d = pl.distanceTo(mc.player);
+            if (d <= cfg.leaveDistance) {
+                leaveTriggered = true;
+                lastLeaveReason = L.t("msg.leave_reason", name, Math.round(d));
+                tasks.stop(null);
+                recorder.cancel();
+                if (cfg.leaveDisconnect) {
+                    leaveHandler.accept("Baritone Studio: " + lastLeaveReason);
+                } else {
+                    say(Formatting.RED, lastLeaveReason);
+                    leaveTriggered = false;
+                    // без выхода: просто остановились; повторно сработает, если игрок останется рядом и задачу запустят снова
+                }
+                return;
+            }
+        }
+    }
+
+    /** Сбросить срабатывание (например, после нового подключения или вручную). */
+    public void resetLeave() {
+        leaveTriggered = false;
+    }
+
     private void handleKeys() {
         boolean noScreen = mc.currentScreen == null;
         while (Keys.OPEN.wasPressed()) {
             if (noScreen) {
                 targeting = false;
+                selecting = false;
                 mc.setScreen(new dev.baritonestudio.gui.StudioScreen());
                 noScreen = false;
             }
@@ -227,7 +353,26 @@ public final class Studio {
             if (recorder.active()) stopRecording(nextMacroName());
             else startRecording();
         }
-        if (targeting && noScreen) {
+        if (selecting && noScreen) {
+            while (Keys.TARGET_ADD.wasPressed()) {
+                if (selHover != null) {
+                    if (selA == null || selB != null) {
+                        selA = selHover;
+                        selB = null;
+                        say(Formatting.GREEN, L.t("msg.sel_a", selA.getX(), selA.getY(), selA.getZ()));
+                    } else {
+                        selB = selHover;
+                        say(Formatting.GREEN, L.t("msg.sel_b", selB.getX(), selB.getY(), selB.getZ()));
+                        selecting = false;
+                    }
+                }
+            }
+            while (Keys.TARGET_UNDO.wasPressed()) {
+                selA = null;
+                selB = null;
+            }
+            while (Keys.TARGET_ROTATE.wasPressed()) {}
+        } else if (targeting && noScreen) {
             while (Keys.TARGET_ADD.wasPressed()) {
                 if (hover != null) {
                     targets.add(hover);
@@ -257,6 +402,7 @@ public final class Studio {
                 if (p != null) Preview.drawPath(p.nodes(), 0);
             }
         }
+        drawSelection();
         if (!previewEnabled || macro == null) return;
         boolean running = t instanceof MacroTask;
         if (running) return; // во время работы лишнее
@@ -273,6 +419,9 @@ public final class Studio {
     }
 
     public void onDisconnect() {
+        leaveTriggered = false;
+        selecting = false;
+        selA = selB = null;
         tasks.stop(null);
         recorder.cancel();
         targeting = false;

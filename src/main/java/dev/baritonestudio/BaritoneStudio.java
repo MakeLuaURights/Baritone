@@ -74,6 +74,50 @@ public class BaritoneStudio implements ClientModInitializer {
                                 studio.startPreset(p, null, null);
                                 return 1;
                             })));
+            root.then(ClientCommandManager.literal("follow")
+                    .executes(ctx -> {
+                        studio.startFollow("", 3);
+                        return 1;
+                    })
+                    .then(ClientCommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.word()).executes(ctx -> {
+                        studio.startFollow(com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "name"), 3);
+                        return 1;
+                    })));
+            root.then(ClientCommandManager.literal("explore").executes(ctx -> {
+                studio.startExplore();
+                return 1;
+            }));
+            root.then(ClientCommandManager.literal("surface").executes(ctx -> {
+                studio.startSurface();
+                return 1;
+            }));
+            root.then(ClientCommandManager.literal("wp")
+                    .then(ClientCommandManager.literal("set").then(ClientCommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.word()).executes(ctx -> {
+                        var mc = net.minecraft.client.MinecraftClient.getInstance();
+                        dev.baritonestudio.preset.Waypoints.set(com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "name"), mc.player.getBlockPos());
+                        studio.say(net.minecraft.util.Formatting.GREEN, L.t("msg.wp_saved"));
+                        return 1;
+                    })))
+                    .then(ClientCommandManager.literal("goto").then(ClientCommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.word()).executes(ctx -> {
+                        var w = dev.baritonestudio.preset.Waypoints.find(com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "name"));
+                        if (w == null) {
+                            studio.say(net.minecraft.util.Formatting.RED, L.t("msg.wp_none"));
+                            return 0;
+                        }
+                        studio.gotoWaypoint(w);
+                        return 1;
+                    })))
+                    .then(ClientCommandManager.literal("del").then(ClientCommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.word()).executes(ctx -> {
+                        var w = dev.baritonestudio.preset.Waypoints.find(com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "name"));
+                        if (w != null) dev.baritonestudio.preset.Waypoints.remove(w);
+                        return 1;
+                    })))
+                    .then(ClientCommandManager.literal("list").executes(ctx -> {
+                        for (var w : dev.baritonestudio.preset.Waypoints.all()) {
+                            studio.say(net.minecraft.util.Formatting.AQUA, w.name + ": " + w.x + " " + w.y + " " + w.z);
+                        }
+                        return 1;
+                    })));
             root.then(ClientCommandManager.literal("record").executes(ctx -> {
                 if (studio.recorder.active()) studio.stopRecording(studio.nextMacroName());
                 else studio.startRecording();

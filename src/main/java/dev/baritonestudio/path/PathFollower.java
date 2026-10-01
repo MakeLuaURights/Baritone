@@ -2,6 +2,7 @@ package dev.baritonestudio.path;
 
 import dev.baritonestudio.config.ModConfig;
 import dev.baritonestudio.task.Actor;
+import dev.baritonestudio.task.Human;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.network.ClientPlayerEntity;
@@ -18,6 +19,8 @@ public final class PathFollower {
     private int idx = 0;
     private int stuck = 0;
     private int pillarWait = 0;
+    private int jumpIdx = -1;
+    private double jumpAt = 1.45;
     private Vec3d lastPos = Vec3d.ZERO;
     public String lastError = "";
 
@@ -121,14 +124,21 @@ public final class PathFollower {
                 }
             }
             default -> {
+                Human h = Human.get();
+                boolean straight = mv == Move.FLAT || mv == Move.DIAGONAL;
+                boolean pause = h.walkPause(grounded && straight && !inWater);
+                if (jumpIdx != idx) {
+                    jumpIdx = idx;
+                    jumpAt = h.jumpDistance();
+                }
                 float rem = a.lookAt(new Vec3d(dest.x, p.getEyeY(), dest.z));
                 boolean stopForward = mv == Move.DESCEND && p.getBlockX() == next.getX() && p.getBlockZ() == next.getZ() && !grounded;
-                if (!stopForward && rem < 60f) {
+                if (!stopForward && !pause && rem < 60f) {
                     a.forward(true);
-                    boolean straight = mv == Move.FLAT || mv == Move.DIAGONAL;
-                    if (ModConfig.get().sprint && straight && !inWater && p.getHungerManager().canSprint()) a.sprint(true);
+                    if (ModConfig.get().sprint && straight && !inWater && p.getHungerManager().canSprint() && h.sprintAllowed()) a.sprint(true);
                 }
-                if (mv == Move.ASCEND && grounded && hd < 1.45) a.jump(true);
+                if (pause) stuck = 0;
+                if (mv == Move.ASCEND && grounded && hd < jumpAt) a.jump(true);
                 if (inWater && dest.y >= pos.y - 0.3) a.jump(true);
                 if (p.horizontalCollision && grounded && mv != Move.DESCEND) a.jump(true);
             }

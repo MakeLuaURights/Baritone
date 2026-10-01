@@ -5,6 +5,7 @@ import dev.baritonestudio.mixin.SignEditScreenAccessor;
 import dev.baritonestudio.path.Goal;
 import dev.baritonestudio.path.Navigator;
 import dev.baritonestudio.task.Actor;
+import dev.baritonestudio.task.Human;
 import dev.baritonestudio.task.Task;
 import dev.baritonestudio.util.L;
 import dev.baritonestudio.util.Storage;
@@ -46,6 +47,9 @@ public final class MacroTask extends Task {
     private int itemWait;
     private boolean navStarted, triedNear, clicked, triedOpen;
     private int verifyAt;
+    private int needAlign = 3;
+    private Vec3d jitterVec;
+    private int jitterStep = -1;
 
     public MacroTask(Macro macro, List<Target> targets) {
         this.macro = macro;
@@ -102,7 +106,7 @@ public final class MacroTask extends Task {
     private void advance() {
         si++;
         resetStep();
-        wait = ModConfig.get().actionDelay;
+        wait = Human.get().jitter(ModConfig.get().actionDelay) + (Human.get().on() ? Human.get().reaction() / 2 : 0);
         if (si >= macro.steps.size()) {
             ti++;
             si = 0;
@@ -236,10 +240,27 @@ public final class MacroTask extends Task {
         return i == null ? null : Registries.BLOCK.getOptionalValue(i).orElse(null);
     }
 
+    /** Человек не кликает в идеальную точку: смещаем точку клика по грани (в пределах блока). */
+    private Vec3d humanHit(Vec3d exact, BlockPos block, Direction side) {
+        Human h = Human.get();
+        if (!h.on()) return exact;
+        int key = ti * 100000 + si;
+        if (jitterStep != key) {
+            jitterStep = key;
+            double m = 0.14 * Math.min(1.5, h.k());
+            jitterVec = new Vec3d((h.rnd().nextDouble() - 0.5) * 2 * m, (h.rnd().nextDouble() - 0.5) * 2 * m, (h.rnd().nextDouble() - 0.5) * 2 * m);
+        }
+        double x = exact.x, y = exact.y, z = exact.z;
+        if (side.getAxis() != Direction.Axis.X) x = Math.max(block.getX() + 0.06, Math.min(block.getX() + 0.94, x + jitterVec.x));
+        // высота клика не меняется: от неё зависит верх/низ плит и ступенек
+        if (side.getAxis() != Direction.Axis.Z) z = Math.max(block.getZ() + 0.06, Math.min(block.getZ() + 0.94, z + jitterVec.z));
+        return new Vec3d(x, y, z);
+    }
+
     private R doUse(Actor a, Step s, Transform tr) {
         BlockPos clickedPos = tr.pos(s);
         Direction side = tr.dir(s.side);
-        Vec3d hitVec = tr.hit(s);
+        Vec3d hitVec = humanHit(tr.hit(s), clickedPos, side);
         ClientPlayerEntity p = a.player();
 
         Block expected = s.placed ? block(s.block) : null;
@@ -285,11 +306,12 @@ public final class MacroTask extends Task {
             // выравниваем взгляд и приседание как при записи
             a.sneak(s.sneak);
             float rem = a.lookAngles(tr.yaw(s), s.pitch);
-            if (rem > 1.5f) {
+            if (rem > (Human.get().on() ? 2.5f : 1.5f)) {
                 alignTicks = 0;
                 return R.RUNNING;
             }
-            if (++alignTicks < 3) return R.RUNNING;
+            if (alignTicks == 0 && Human.get().on()) needAlign = 3 + Human.get().rnd().nextInt(4);
+            if (++alignTicks < needAlign) return R.RUNNING;
 
             a.useOn(new BlockHitResult(hitVec, side, clickedPos, false));
             clicked = true;

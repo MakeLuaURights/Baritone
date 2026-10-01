@@ -11,6 +11,7 @@ import net.minecraft.util.Formatting;
 public final class TaskManager {
     private final MinecraftClient mc = MinecraftClient.getInstance();
     private final Actor actor = new Actor();
+    private final AutoEat eat = new AutoEat();
     private Task current;
     private Task last;
     private long startedAt;
@@ -78,6 +79,10 @@ public final class TaskManager {
         int hp = ModConfig.get().stopHealth;
         if (hp > 0 && p.getHealth() <= hp && !p.isCreative()) {
             stop(L.t("msg.low_health", Math.round(p.getHealth() / 2f * 10) / 10.0));
+            return;
+        }
+        if (eat.tick(actor)) {
+            actor.apply();
             return;
         }
         try {

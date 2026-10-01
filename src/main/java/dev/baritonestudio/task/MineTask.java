@@ -39,6 +39,16 @@ public final class MineTask extends Task {
     private BlockPos lastMined;
     private String status = "";
 
+    private java.util.function.Predicate<BlockPos> region;
+    private boolean topDown;
+
+    /** Добыча внутри заданной области (очистка): сверху вниз, любым ломаемым блоком. */
+    public MineTask(String title, BlockMatcher matcher, int radius, java.util.function.Predicate<BlockPos> region, boolean topDown) {
+        this(title, matcher, 0, radius, false);
+        this.region = region;
+        this.topDown = topDown;
+    }
+
     public MineTask(String title, BlockMatcher matcher, int count, int radius, boolean replant) {
         this.title = title;
         this.matcher = matcher;
@@ -130,7 +140,7 @@ public final class MineTask extends Task {
             return;
         }
         Terrain t = new Terrain(a.world(), true, false, cfg.maxFall);
-        BlockPos found = BlockScanner.nearest(a.world(), a.player().getBlockPos(), radius, matcher, bad, t);
+        BlockPos found = BlockScanner.nearest(a.world(), a.player().getBlockPos(), radius, matcher, bad, t, region, topDown, cfg.legitMine && region == null);
         if (found == null) {
             if (mined == 0) {
                 fail(L.t("status.nothing_found", radius));
@@ -208,7 +218,7 @@ public final class MineTask extends Task {
         mined++;
         lastMined = target;
         phase = Phase.SETTLE;
-        ticks = 2;
+        ticks = Human.get().jitter(2);
     }
 
     private void replant(Actor a, ModConfig cfg) {
