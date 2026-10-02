@@ -118,6 +118,11 @@ public class BaritoneStudio implements ClientModInitializer {
                         }
                         return 1;
                     })));
+            root.then(ClientCommandManager.literal("learn").executes(ctx -> {
+                if (dev.baritonestudio.human.HumanLearner.active()) dev.baritonestudio.human.HumanLearner.stop();
+                else dev.baritonestudio.human.HumanLearner.start();
+                return 1;
+            }));
             root.then(ClientCommandManager.literal("record").executes(ctx -> {
                 if (studio.recorder.active()) studio.stopRecording(studio.nextMacroName());
                 else studio.startRecording();

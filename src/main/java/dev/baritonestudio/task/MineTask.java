@@ -39,6 +39,8 @@ public final class MineTask extends Task {
     private int retries;
     private java.util.List<BlockPos> cands = java.util.List.of();
     private float lastHardness;
+    private double styleDist;
+    private boolean lastWasLog;
     private BlockPos lastMined;
     private String status = "";
 
@@ -169,7 +171,13 @@ public final class MineTask extends Task {
         status = L.t("status.going_to", target.getX(), target.getY(), target.getZ());
         // одним поиском выбираем самую дешёвую по длине пути цель среди ближайших кандидатов
         java.util.List<dev.baritonestudio.path.Goal> goals = new java.util.ArrayList<>();
-        for (BlockPos c : cands) goals.add(new Goal.Adjacent(c));
+        // дерево + записанный почерк: подходим на привычную игроку дистанцию удара, а не вплотную
+        styleDist = 0;
+        if (a.world().getBlockState(target).isIn(net.minecraft.registry.tag.BlockTags.LOGS)) {
+            var prof = dev.baritonestudio.human.HumanStyle.forLog(target, a.world().getTime());
+            if (prof != null) styleDist = Math.max(1.8, Math.min(cfg.reach - 0.4, prof.hitDistance));
+        }
+        for (BlockPos c : cands) goals.add(styleDist > 0 ? new Goal.Within(c, styleDist) : new Goal.Adjacent(c));
         nav.setGoal(goals.size() == 1 ? goals.get(0) : new Goal.Any(goals));
         phase = Phase.NAV;
         ticks = 0;
@@ -180,8 +188,11 @@ public final class MineTask extends Task {
         BlockPos me = a.player().getBlockPos();
         for (BlockPos c : cands) {
             if (!matcher.test(a.world().getBlockState(c))) continue;
-            if (requireAdjacent && new Goal.Adjacent(c).isEnd(me.getX(), me.getY(), me.getZ())) return c;
-            if (!requireAdjacent && a.inReach(c)) {
+            if (requireAdjacent) {
+                Goal g = styleDist > 0 ? new Goal.Within(c, styleDist) : new Goal.Adjacent(c);
+                if (g.isEnd(me.getX(), me.getY(), me.getZ())) return c;
+            }
+            if (!requireAdjacent && (styleDist > 0 ? a.eyeDistance(c) <= styleDist + 0.2 : a.inReach(c))) {
                 BlockHitResult hit = a.sight(c);
                 if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(c)) return c;
             }
@@ -238,6 +249,7 @@ public final class MineTask extends Task {
         }
         status = L.t("status.mining", st.getBlock().getName().getString());
         lastHardness = st.getHardness(a.world(), target);
+        lastWasLog = st.isIn(net.minecraft.registry.tag.BlockTags.LOGS);
         Actor.MineResult r = a.mine(target);
         if (r == Actor.MineResult.FAIL) {
             // не дотянулись – пробуем подойти
@@ -262,7 +274,9 @@ public final class MineTask extends Task {
         lastMined = target;
         expectDrop = lastHardness > 0f; // у мгновенно ломающихся (трава) дропа обычно нет
         phase = Phase.SETTLE;
-        ticks = Human.get().jitter(2) + (Human.get().on() ? Human.get().thinkPause() : 0);
+        var styled = lastWasLog ? dev.baritonestudio.human.HumanStyle.current(a.world().getTime()) : null;
+        ticks = styled != null ? Math.max(1, styled.sampleThink(dev.baritonestudio.human.HumanStyle.rnd()))
+                : Human.get().jitter(2) + (Human.get().on() ? Human.get().thinkPause() : 0);
     }
 
     private void replant(Actor a, ModConfig cfg) {

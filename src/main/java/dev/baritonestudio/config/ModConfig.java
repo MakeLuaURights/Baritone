@@ -51,6 +51,8 @@ public class ModConfig {
 
     /** Human-Mode: человекоподобные мышь, движение, добыча и строительство. */
     public boolean humanMode = false;
+    /** Human-Mode: для деревьев использовать записанные профили (почерк игрока). */
+    public boolean humanProfiles = true;
     /** Сила человекоподобности: 0.5 – слегка, 2 – сильно. */
     public float humanIntensity = 1.0f;
 

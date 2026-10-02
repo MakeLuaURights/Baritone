@@ -70,6 +70,10 @@ public class StudioClientTest implements FabricClientGameTest {
             ctx.getInput().pressKey(Keys.OPEN);
             ctx.waitFor(mc -> mc.currentScreen == null);
 
+            if (System.getProperty("bs.only.human") != null) {
+                testHumanProfiles(ctx, srv, base);
+                return;
+            }
             if (System.getProperty("bs.only.movement") != null) {
                 testMovement(ctx, srv, base);
                 return;
@@ -128,6 +132,9 @@ public class StudioClientTest implements FabricClientGameTest {
 
             // ---------- высокое дерево (нужен столб из блоков)
             testTree(ctx, srv, base);
+
+            // ---------- обучение почерку и рубка деревьев по записанным профилям
+            testHumanProfiles(ctx, srv, base);
 
             // ---------- клик мышью по меню
             testMouse(ctx);
@@ -470,6 +477,95 @@ public class StudioClientTest implements FabricClientGameTest {
         tp(srv, base);
         ctx.waitTicks(10);
         System.out.println("[E2E] movement ok");
+    }
+
+    /** Имитация живого игрока: плавный поворот мыши к блоку, затем удержание удара до разрушения. */
+    private void humanAimAndBreak(ClientGameTestContext ctx, BlockPos log, int turnTicks, int reaction, int think) {
+        Vec3d[] tgt = new Vec3d[1];
+        float[] st = new float[4];
+        ctx.runOnClient(mc -> {
+            tgt[0] = new Vec3d(log.getX() + 0.03, log.getY() + 0.5, log.getZ() + 0.5);
+            Vec3d eye = mc.player.getEyePos();
+            double dx = tgt[0].x - eye.x, dy = tgt[0].y - eye.y, dz = tgt[0].z - eye.z;
+            st[0] = mc.player.getYaw();
+            st[1] = mc.player.getPitch();
+            st[2] = net.minecraft.util.math.MathHelper.wrapDegrees((float) (Math.atan2(dz, dx) * 180 / Math.PI) - 90f - st[0]);
+            st[3] = (float) -(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)) * 180 / Math.PI) - st[1];
+        });
+        for (int t = 1; t <= turnTicks; t++) {
+            double u = t / (double) turnTicks;
+            float prog = (float) (1 - Math.pow(1 - u, 2.2));
+            ctx.runOnClient(mc -> {
+                mc.player.setYaw(st[0] + st[2] * prog);
+                mc.player.setPitch(st[1] + st[3] * prog);
+            });
+            ctx.waitTick();
+        }
+        ctx.waitTicks(reaction);
+        java.util.Random r = new java.util.Random(log.asLong());
+        for (int t = 0; t < 250; t++) {
+            boolean air = ctx.computeOnClient(mc -> {
+                mc.options.attackKey.setPressed(true);
+                mc.player.setYaw(mc.player.getYaw() + (float) (r.nextGaussian() * 0.12));
+                mc.player.setPitch(mc.player.getPitch() + (float) (r.nextGaussian() * 0.08));
+                return mc.world.getBlockState(log).isAir();
+            });
+            if (air) break;
+            ctx.waitTick();
+        }
+        ctx.runOnClient(mc -> mc.options.attackKey.setPressed(false));
+        ctx.waitTicks(think);
+    }
+
+    private void testHumanProfiles(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
+        var cfg = dev.baritonestudio.config.ModConfig.get();
+        srv.runCommand("gamemode survival @a");
+        srv.runCommand("clear @a");
+        srv.runCommand("give @a minecraft:iron_axe");
+        ctx.runOnClient(mc -> {
+            dev.baritonestudio.human.HumanProfiles.clear();
+            dev.baritonestudio.human.HumanLearner.targetTrees = 3;
+            dev.baritonestudio.human.HumanLearner.start();
+        });
+        for (int k = 0; k < 3; k++) {
+            BlockPos trunk = base.add(14 + k * 9, 0, 24);
+            fill(srv, trunk, trunk.add(0, 2, 0), "oak_log");
+            srv.runCommand("tp @a " + (trunk.getX() - 2 - (k % 2)) + " " + trunk.getY() + " " + trunk.getZ() + " 0 0");
+            ctx.waitTicks(10);
+            for (int j = 0; j < 3; j++) humanAimAndBreak(ctx, trunk.up(j), 7 + 2 * k + j, 3 + k * 2, 5 + j * 2);
+            ctx.waitTicks(130);
+        }
+        int count = dev.baritonestudio.human.HumanProfiles.all().size();
+        System.out.println("[E2E] learned profiles: " + count);
+        for (var pr : dev.baritonestudio.human.HumanProfiles.all()) System.out.println("[E2E]   profile " + pr.summary() + " speed=" + pr.aimSpeed + " jitter=" + pr.jitterYaw);
+        check(count == 3, "обучение должно записать 3 профиля, записано " + count);
+        check(!dev.baritonestudio.human.HumanLearner.active(), "обучение должно завершиться само");
+        for (var pr : dev.baritonestudio.human.HumanProfiles.all()) {
+            check(pr.logs >= 2, "в профиле мало брёвен: " + pr.logs);
+            check(pr.hitDistance > 0.8 && pr.hitDistance < 5.5, "странная дистанция удара: " + pr.hitDistance);
+        }
+
+        // ---- воспроизведение: рубим новые деревья записанным почерком
+        srv.runCommand("kill @e[type=minecraft:item]");
+        srv.runCommand("clear @a");
+        srv.runCommand("give @a minecraft:iron_axe");
+        BlockPos a = base.add(-30, 0, 24), b = base.add(-40, 0, 24);
+        fill(srv, a, a.add(0, 2, 0), "oak_log");
+        fill(srv, b, b.add(0, 2, 0), "oak_log");
+        tp(srv, base.add(-30, 0, 18));
+        ctx.waitTicks(15);
+        ctx.runOnClient(mc -> {
+            cfg.humanMode = true;
+            cfg.humanProfiles = true;
+            Studio.get().startPreset(PresetStore.find("wood"), 6, 24);
+        });
+        waitTaskEnd(ctx, 2400, "Рубка деревьев почерком");
+        int logs = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.OAK_LOG));
+        int idx = dev.baritonestudio.human.HumanStyle.currentIndex();
+        System.out.println("[E2E] styled chop logs=" + logs + " lastProfile=" + idx);
+        check(logs == 6, "ожидалось 6 брёвен, получено " + logs);
+        check(idx >= 0, "профиль не применялся");
+        ctx.runOnClient(mc -> cfg.humanMode = false);
     }
 
     private void testRebind(ClientGameTestContext ctx) {

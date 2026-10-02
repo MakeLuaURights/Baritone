@@ -91,6 +91,28 @@ public interface Goal {
         }
     }
 
+    /**
+     * Встать так, чтобы цель была не дальше dist блоков от глаз (как игрок, который бьёт дерево с привычной ему дистанции),
+     * но не внутри самого себя.
+     */
+    record Within(BlockPos target, double dist) implements Goal {
+        @Override
+        public boolean isEnd(int px, int py, int pz) {
+            int tx = target.getX(), ty = target.getY(), tz = target.getZ();
+            if (px == tx && pz == tz && (py == ty || py + 1 == ty)) return false;
+            double dx = px + 0.5 - (tx + 0.5), dy = py + 1.62 - (ty + 0.5), dz = pz + 0.5 - (tz + 0.5);
+            return dx * dx + dy * dy + dz * dz <= dist * dist;
+        }
+
+        @Override
+        public double heuristic(int px, int py, int pz) {
+            double dy = target.getY() - py;
+            double h = Math.max(0, octile(target.getX() - px, target.getZ() - pz) - dist) * Costs.HEURISTIC;
+            if (dy > dist) h += vertical(dy - dist);
+            return Math.max(0, h);
+        }
+    }
+
     /** Дойти до точки на карте, высота не важна (для исследования и дальних переходов). */
     record XZ(int x, int z, int range) implements Goal {
         @Override

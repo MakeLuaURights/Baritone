@@ -262,6 +262,7 @@ public final class Studio {
 
         handleKeys();
         guardPlayers();
+        dev.baritonestudio.human.HumanLearner.tick(mc);
         tasks.tick();
         recorder.tick();
 
@@ -419,6 +420,8 @@ public final class Studio {
     }
 
     public void onDisconnect() {
+        dev.baritonestudio.human.HumanLearner.stop();
+        dev.baritonestudio.human.HumanStyle.reset();
         leaveTriggered = false;
         selecting = false;
         selA = selB = null;

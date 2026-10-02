@@ -268,5 +268,16 @@
   "baritonestudio.task.follow": "Следовать за %s",
   "baritonestudio.task.follow_any": "Следовать за игроком",
   "baritonestudio.task.surface": "Выход на поверхность",
-  "baritonestudio.set.parkour": "Прыгать через пропасти (parkour)"
+  "baritonestudio.set.parkour": "Прыгать через пропасти (parkour)",
+  "baritonestudio.hud.learning": "Обучение Human-Mode: дерево %1$s из %2$s (брёвен: %3$s) — рубите вручную",
+  "baritonestudio.msg.learn_start": "Обучение запущено. Срубите вручную %s деревьев как обычно: бот запоминает, как вы наводите мышь, с какой дистанции бьёте и сколько делаете пауз.",
+  "baritonestudio.msg.learn_stop": "Обучение остановлено. Записано профилей: %s.",
+  "baritonestudio.msg.learn_tree": "Записано дерево %1$s из %2$s (брёвен: %3$s).",
+  "baritonestudio.msg.learn_done": "Обучение завершено: профилей %s. Теперь бот будет рубить деревья вашим почерком.",
+  "baritonestudio.set.human_profiles": "Рубить деревья вашим почерком",
+  "baritonestudio.set.human_profiles_hint": "Срубите вручную 10 деревьев — мод запишет ваши движения мыши, дрожание прицела, дистанцию удара, точку прицеливания и паузы. Дальше для каждого нового дерева бот случайно берёт один из записанных стилей. Только для брёвен.",
+  "baritonestudio.set.human_profiles_count": "Записано профилей: %1$s из %2$s",
+  "baritonestudio.set.learn_start": "Обучение: срубить %s деревьев",
+  "baritonestudio.set.learn_stop": "Остановить обучение",
+  "baritonestudio.set.learn_reset": "Удалить записанные профили"
 }

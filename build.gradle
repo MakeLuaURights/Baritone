@@ -67,4 +67,5 @@ jar {
 tasks.matching { it.name == 'runClientGameTest' }.configureEach {
     if (it.hasProperty('jvmArgs')) it.jvmArgs('-Dfabric.client.gametest.disableNetworkSynchronizer=true')
     if (project.hasProperty('onlyMovement') && it.hasProperty('jvmArgs')) it.jvmArgs('-Dbs.only.movement=1')
+    if (project.hasProperty('onlyHuman') && it.hasProperty('jvmArgs')) it.jvmArgs('-Dbs.only.human=1')
 }

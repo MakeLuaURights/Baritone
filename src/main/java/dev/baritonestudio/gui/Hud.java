@@ -47,6 +47,11 @@ public final class Hud {
             line(g, tr, x, y, L.t("hud.stop_hint", Keys.STOP.getBoundKeyLocalizedText().getString()), 0xFF8B98A5);
             y += 12;
         }
+        if (dev.baritonestudio.human.HumanLearner.active()) {
+            line(g, tr, x, y, L.t("hud.learning", dev.baritonestudio.human.HumanProfiles.all().size() + 1, dev.baritonestudio.human.HumanLearner.targetTrees,
+                    dev.baritonestudio.human.HumanLearner.logsInTree()), 0xFF55E07A);
+            y += 12;
+        }
         if (st.selecting) {
             line(g, tr, x, y, L.t("hud.selecting", st.selA == null ? 1 : 2), 0xFF4DE3E3);
             y += 12;

@@ -268,5 +268,16 @@
   "baritonestudio.task.follow": "Follow %s",
   "baritonestudio.task.follow_any": "Follow a player",
   "baritonestudio.task.surface": "Go to surface",
-  "baritonestudio.set.parkour": "Jump over gaps (parkour)"
+  "baritonestudio.set.parkour": "Jump over gaps (parkour)",
+  "baritonestudio.hud.learning": "Human-Mode training: tree %1$s of %2$s (logs: %3$s) — chop by hand",
+  "baritonestudio.msg.learn_start": "Training started. Chop %s trees by hand as usual: the mod records how you aim the mouse, from what distance you hit and how long you pause.",
+  "baritonestudio.msg.learn_stop": "Training stopped. Profiles recorded: %s.",
+  "baritonestudio.msg.learn_tree": "Tree %1$s of %2$s recorded (logs: %3$s).",
+  "baritonestudio.msg.learn_done": "Training finished: %s profiles. The bot will now chop trees in your style.",
+  "baritonestudio.set.human_profiles": "Chop trees in your own style",
+  "baritonestudio.set.human_profiles_hint": "Chop 10 trees by hand — the mod records your mouse movement, aim jitter, hit distance, aim point and pauses. Then for each new tree the bot randomly picks one of the recorded styles. Logs only.",
+  "baritonestudio.set.human_profiles_count": "Profiles recorded: %1$s of %2$s",
+  "baritonestudio.set.learn_start": "Training: chop %s trees",
+  "baritonestudio.set.learn_stop": "Stop training",
+  "baritonestudio.set.learn_reset": "Delete recorded profiles"
 }

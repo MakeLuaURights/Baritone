@@ -36,6 +36,64 @@ public final class Actor {
     private int humanWait;
     private int toolWait;
 
+    // ---- наведение по записанному профилю
+    private static final class StyleAim {
+        float sy, sp;
+        int t, total;
+        dev.baritonestudio.human.HumanProfile prof;
+        Vec3d key;
+        boolean done;
+    }
+
+    private StyleAim styleAim;
+    private Vec3d styleAimPoint = Vec3d.ZERO;
+    private int preLook;
+    private float noiseY, noiseP;
+
+    private float pitchTo(Vec3d target) {
+        Vec3d eye = mc.player.getEyePos();
+        double dx = target.x - eye.x, dy = target.y - eye.y, dz = target.z - eye.z;
+        return (float) -(MathHelper.atan2(dy, Math.sqrt(dx * dx + dz * dz)) * 180.0 / Math.PI);
+    }
+
+    /** Поворот к точке по кривой скорости из профиля, затем удержание с записанным дрожанием. */
+    private void styledLook(Vec3d target, dev.baritonestudio.human.HumanProfile prof) {
+        ClientPlayerEntity p = mc.player;
+        float ty = yawTo(target), tp = MathHelper.clamp(pitchTo(target), -90f, 90f);
+        var rnd = dev.baritonestudio.human.HumanStyle.rnd();
+        float grid = Human.get().mouseStep();
+        if (styleAim == null || styleAim.prof != prof || styleAim.key.squaredDistanceTo(target) > 0.16) {
+            double dist = Math.hypot(MathHelper.wrapDegrees(ty - p.getYaw()), tp - p.getPitch());
+            styleAim = new StyleAim();
+            styleAim.prof = prof;
+            styleAim.key = target;
+            styleAim.sy = p.getYaw();
+            styleAim.sp = p.getPitch();
+            styleAim.total = prof.aimTicks(dist);
+            styleAim.done = dist < 1.5;
+        }
+        StyleAim a = styleAim;
+        if (!a.done) {
+            a.t++;
+            double u = Math.min(1.0, a.t / (double) a.total);
+            float prog = prof.curveAt(u);
+            float wantY = a.sy + MathHelper.wrapDegrees(ty - a.sy) * prog;
+            float wantP = a.sp + (tp - a.sp) * prog;
+            p.setYaw(p.getYaw() + quantize(MathHelper.wrapDegrees(wantY - p.getYaw()), grid, MathHelper.wrapDegrees(wantY - p.getYaw())));
+            p.setPitch(MathHelper.clamp(p.getPitch() + quantize(wantP - p.getPitch(), grid, wantP - p.getPitch()), -90f, 90f));
+            if (u >= 1.0) a.done = true;
+            return;
+        }
+        // удержание: прицел слегка гуляет вокруг цели, как у живой руки
+        noiseY = noiseY * 0.88f + (float) rnd.nextGaussian() * prof.jitterYaw;
+        noiseP = noiseP * 0.88f + (float) rnd.nextGaussian() * prof.jitterPitch;
+        noiseY = MathHelper.clamp(noiseY, -2.2f, 2.2f);
+        noiseP = MathHelper.clamp(noiseP, -1.6f, 1.6f);
+        float dy = MathHelper.wrapDegrees(ty + noiseY - p.getYaw()), dp = tp + noiseP - p.getPitch();
+        p.setYaw(p.getYaw() + quantize(dy * 0.5f, grid, dy));
+        p.setPitch(MathHelper.clamp(p.getPitch() + quantize(dp * 0.5f, grid, dp), -90f, 90f));
+    }
+
     public ClientPlayerEntity player() {
         return mc.player;
     }
@@ -349,7 +407,31 @@ public final class Actor {
         if (ts.getHardness(w, target) < 0) return MineResult.FAIL;
         selectBestTool(ts);
         Human h = Human.get();
-        if (h.on()) {
+        dev.baritonestudio.human.HumanProfile prof = ts.isIn(net.minecraft.registry.tag.BlockTags.LOGS)
+                ? dev.baritonestudio.human.HumanStyle.forLog(target, mc.world.getTime()) : null;
+        if (prof != null) {
+            // записанный почерк игрока: реакция, траектория мыши, точка прицела, дрожание
+            var rnd = dev.baritonestudio.human.HumanStyle.rnd();
+            if (!target.equals(humanTarget)) {
+                humanTarget = target;
+                humanWait = prof.sampleReaction(rnd);
+                styleAimPoint = dev.baritonestudio.human.HumanStyle.aimPoint(prof, target);
+                preLook = dev.baritonestudio.human.HumanStyle.isNewTree() && rnd.nextFloat() < prof.lookUpProb ? 5 + rnd.nextInt(10) : 0;
+                styleAim = null;
+            }
+            Vec3d aim = styleAimPoint;
+            if (preLook > 0) {
+                preLook--;
+                aim = styleAimPoint.add(0, 1.5 + prof.lookUpDeg / 18.0, 0);
+            }
+            styledLook(aim, prof);
+            boolean aiming = styleAim != null && !styleAim.done;
+            if (aiming || humanWait > 0 || toolWait > 0 || preLook > 0) {
+                if (!aiming && preLook == 0 && humanWait > 0) humanWait--;
+                if (toolWait > 0) toolWait--;
+                return MineResult.WORKING;
+            }
+        } else if (h.on()) {
             if (!target.equals(humanTarget)) {
                 humanTarget = target;
                 humanWait = h.reaction();
