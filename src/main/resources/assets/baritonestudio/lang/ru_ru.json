@@ -269,7 +269,7 @@
   "baritonestudio.task.follow_any": "Следовать за игроком",
   "baritonestudio.task.surface": "Выход на поверхность",
   "baritonestudio.set.parkour": "Прыгать через пропасти (parkour)",
-  "baritonestudio.hud.learning": "Обучение Human-Mode: дерево %1$s из %2$s (брёвен: %3$s) — рубите вручную",
+  "baritonestudio.hud.learning": "Обучение Human-Mode: записано %1$s из %2$s, осталось срубить %4$s (в текущем дереве брёвен: %3$s)",
   "baritonestudio.msg.learn_start": "Обучение запущено. Срубите вручную %s деревьев как обычно: бот запоминает, как вы наводите мышь, с какой дистанции бьёте и сколько делаете пауз.",
   "baritonestudio.msg.learn_stop": "Обучение остановлено. Записано профилей: %s.",
   "baritonestudio.msg.learn_tree": "Записано дерево %1$s из %2$s (брёвен: %3$s).",
@@ -279,5 +279,16 @@
   "baritonestudio.set.human_profiles_count": "Записано профилей: %1$s из %2$s",
   "baritonestudio.set.learn_start": "Обучение: срубить %s деревьев",
   "baritonestudio.set.learn_stop": "Остановить обучение",
-  "baritonestudio.set.learn_reset": "Удалить записанные профили"
+  "baritonestudio.set.learn_reset": "Удалить записанные профили",
+  "baritonestudio.set.human_profiles_where": "Почерк для деревьев включается и записывается в меню «Пресеты» → «Дерево».",
+  "baritonestudio.wood.title": "Human-Mode: ваш почерк",
+  "baritonestudio.wood.use": "Рубить вашим почерком",
+  "baritonestudio.wood.progress": "Записано деревьев: %1$s из %2$s",
+  "baritonestudio.wood.left": "Осталось срубить: %s",
+  "baritonestudio.wood.current": "В текущем дереве брёвен: %s",
+  "baritonestudio.wood.ready": "Почерк записан — бот рубит деревья как вы.",
+  "baritonestudio.wood.relearn": "Записать заново",
+  "baritonestudio.wood.hint": "Нажмите «Начать» и срубите вручную ещё %s деревьев как обычно — мод запомнит, как вы целитесь, бьёте и делаете паузы.",
+  "baritonestudio.wood.start": "Начать обучение (%s деревьев)",
+  "baritonestudio.wood.continue": "Продолжить обучение (осталось %s)"
 }

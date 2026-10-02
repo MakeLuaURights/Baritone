@@ -77,29 +77,8 @@ final class SettingsTab {
         s.slider(bx, by, cw, L.t("set.human_level"), 0.5, 2.0, c.humanIntensity, false, v -> c.humanIntensity = v.floatValue());
         by += 32;
 
-        // ---- записанный почерк для деревьев
-        s.toggle(bx, by, cw, L.t("set.human_profiles"), c.humanProfiles, v -> c.humanProfiles = v);
-        by += 18;
-        var profiles = dev.baritonestudio.human.HumanProfiles.all();
-        boolean learning = dev.baritonestudio.human.HumanLearner.active();
-        n = s.wrapped(L.t("set.human_profiles_hint"), bx, by, cw, Ui.DIM, 7);
-        by += n * 11 + 4;
-        s.text(L.t("set.human_profiles_count", profiles.size(), dev.baritonestudio.human.HumanProfiles.MAX), bx, by, profiles.isEmpty() ? Ui.WARN : Ui.OK);
-        by += 14;
-        if (learning) {
-            s.button(bx, by, cw, 16, L.t("set.learn_stop"), StudioScreen.Style.DANGER, true, dev.baritonestudio.human.HumanLearner::stop);
-        } else {
-            s.button(bx, by, cw, 16, L.t("set.learn_start", dev.baritonestudio.human.HumanLearner.targetTrees), StudioScreen.Style.ACCENT, true, () -> {
-                net.minecraft.client.MinecraftClient.getInstance().setScreen(null);
-                dev.baritonestudio.human.HumanLearner.start();
-            });
-        }
-        by += 20;
-        s.button(bx, by, cw, 16, L.t("set.learn_reset"), StudioScreen.Style.NORMAL, !profiles.isEmpty(), () -> {
-            dev.baritonestudio.human.HumanProfiles.clear();
-            dev.baritonestudio.human.HumanStyle.reset();
-        });
-        by += 26;
+        s.wrapped(L.t("set.human_profiles_where"), bx, by, cw, Ui.DIM, 3);
+        by += 36;
 
         s.textShadow(L.t("set.behavior"), bx, by, Ui.ACCENT);
         by += 16;

@@ -40,6 +40,12 @@ public class StudioScreen extends Screen {
         currentTab = t;
     }
 
+    /** Открыть вкладку пресетов с выбранным пресетом. */
+    public void openPreset(String id) {
+        currentTab = TabId.PRESETS;
+        presetsTab.select(id);
+    }
+
     /** Открыть редактор нового пресета (для тестов и быстрых ссылок). */
     public void openPresetEditor() {
         currentTab = TabId.PRESETS;

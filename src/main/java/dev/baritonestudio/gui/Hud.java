@@ -48,8 +48,9 @@ public final class Hud {
             y += 12;
         }
         if (dev.baritonestudio.human.HumanLearner.active()) {
-            line(g, tr, x, y, L.t("hud.learning", dev.baritonestudio.human.HumanProfiles.all().size() + 1, dev.baritonestudio.human.HumanLearner.targetTrees,
-                    dev.baritonestudio.human.HumanLearner.logsInTree()), 0xFF55E07A);
+            line(g, tr, x, y, L.t("hud.learning", dev.baritonestudio.human.HumanProfiles.all().size(), dev.baritonestudio.human.HumanLearner.targetTrees,
+                    dev.baritonestudio.human.HumanLearner.logsInTree(),
+                    Math.max(0, dev.baritonestudio.human.HumanLearner.targetTrees - dev.baritonestudio.human.HumanProfiles.all().size())), 0xFF55E07A);
             y += 12;
         }
         if (st.selecting) {

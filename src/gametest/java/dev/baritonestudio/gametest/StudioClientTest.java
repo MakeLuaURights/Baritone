@@ -525,8 +525,20 @@ public class StudioClientTest implements FabricClientGameTest {
         ctx.runOnClient(mc -> {
             dev.baritonestudio.human.HumanProfiles.clear();
             dev.baritonestudio.human.HumanLearner.targetTrees = 3;
-            dev.baritonestudio.human.HumanLearner.start();
         });
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen instanceof StudioScreen);
+        ctx.runOnClient(mc -> {
+            mc.options.getGuiScale().setValue(2);
+            mc.onResolutionChanged();
+            ((StudioScreen) mc.currentScreen).openPreset("wood");
+        });
+        ctx.getInput().resizeWindow(1280, 720);
+        ctx.waitTicks(6);
+        ctx.takeScreenshot("30-wood-before");
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen == null);
+        ctx.runOnClient(mc -> dev.baritonestudio.human.HumanLearner.start());
         for (int k = 0; k < 3; k++) {
             BlockPos trunk = base.add(14 + k * 9, 0, 24);
             fill(srv, trunk, trunk.add(0, 2, 0), "oak_log");
@@ -537,6 +549,19 @@ public class StudioClientTest implements FabricClientGameTest {
         }
         int count = dev.baritonestudio.human.HumanProfiles.all().size();
         System.out.println("[E2E] learned profiles: " + count);
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen instanceof StudioScreen);
+        ctx.runOnClient(mc -> ((StudioScreen) mc.currentScreen).openPreset("wood"));
+        ctx.waitTicks(3);
+        ctx.takeScreenshot("31-wood-after");
+        ctx.runOnClient(mc -> {
+            mc.options.getGuiScale().setValue(0);
+            mc.onResolutionChanged();
+        });
+        ctx.getInput().resizeWindow(854, 480);
+        ctx.getInput().pressKey(Keys.OPEN);
+        ctx.waitFor(mc -> mc.currentScreen == null);
+
         for (var pr : dev.baritonestudio.human.HumanProfiles.all()) System.out.println("[E2E]   profile " + pr.summary() + " speed=" + pr.aimSpeed + " jitter=" + pr.jitterYaw);
         check(count == 3, "обучение должно записать 3 профиля, записано " + count);
         check(!dev.baritonestudio.human.HumanLearner.active(), "обучение должно завершиться само");

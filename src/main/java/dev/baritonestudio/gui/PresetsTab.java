@@ -105,6 +105,8 @@ final class PresetsTab {
             yy += n * 11 + 6;
         }
 
+        if (p.builtin && p.id.equals("wood")) yy = woodStyle(x, yy, cw) + 4;
+
         int fw = 56;
         String countLabel = switch (p.type) {
             case MINE -> L.t("preset.param.count");
@@ -159,6 +161,67 @@ final class PresetsTab {
         }
     }
 
+    /** Блок «Human-Mode: ваш почерк» в карточке пресета «Дерево»: включение, обучение и сколько осталось срубить. */
+    private int woodStyle(int x, int yy, int cw) {
+        var c = dev.baritonestudio.config.ModConfig.get();
+        var profiles = dev.baritonestudio.human.HumanProfiles.all();
+        int total = dev.baritonestudio.human.HumanLearner.targetTrees;
+        int done = Math.min(profiles.size(), total);
+        boolean learning = dev.baritonestudio.human.HumanLearner.active();
+        boolean on = c.humanMode && c.humanProfiles;
+
+        Ui.round(s.g, x - 2, yy, cw + 4, 1, Ui.BORDER);
+        yy += 6;
+        s.textShadow(L.t("wood.title"), x, yy, Ui.ACCENT);
+        yy += 14;
+        s.toggle(x, yy, cw, L.t("wood.use"), on, v -> {
+            c.humanProfiles = v;
+            if (v) c.humanMode = true;
+        });
+        yy += 20;
+
+        // прогресс записи
+        int left = Math.max(0, total - done);
+        s.text(L.t("wood.progress", done, total), x, yy, left == 0 ? Ui.OK : 0xFFC4CED8);
+        yy += 12;
+        Ui.progress(s.g, x, yy, cw, 6, total == 0 ? 0 : done / (double) total);
+        yy += 12;
+        if (learning) {
+            s.text(s.trim(L.t("wood.left", left), cw), x, yy, Ui.WARN);
+            yy += 11;
+            s.text(s.trim(L.t("wood.current", dev.baritonestudio.human.HumanLearner.logsInTree()), cw), x, yy, Ui.DIM);
+            yy += 14;
+            s.button(x, yy, cw, 16, L.t("set.learn_stop"), Style.DANGER, true, dev.baritonestudio.human.HumanLearner::stop);
+            yy += 20;
+        } else if (left == 0) {
+            s.text(s.trim(L.t("wood.ready"), cw), x, yy, Ui.OK);
+            yy += 14;
+            s.button(x, yy, cw, 16, L.t("wood.relearn"), Style.NORMAL, true, () -> {
+                dev.baritonestudio.human.HumanProfiles.clear();
+                dev.baritonestudio.human.HumanStyle.reset();
+                MinecraftClient.getInstance().setScreen(null);
+                dev.baritonestudio.human.HumanLearner.start();
+            });
+            yy += 20;
+        } else {
+            int n = s.wrapped(L.t("wood.hint", left), x, yy, cw, Ui.DIM, 4);
+            yy += n * 11 + 4;
+            s.button(x, yy, cw, 16, L.t(done == 0 ? "wood.start" : "wood.continue", done == 0 ? total : left), Style.ACCENT, true, () -> {
+                MinecraftClient.getInstance().setScreen(null);
+                dev.baritonestudio.human.HumanLearner.start();
+            });
+            yy += 20;
+        }
+        if (!profiles.isEmpty() && !learning) {
+            s.button(x, yy, cw, 14, L.t("set.learn_reset"), Style.GHOST, true, () -> {
+                dev.baritonestudio.human.HumanProfiles.clear();
+                dev.baritonestudio.human.HumanStyle.reset();
+            });
+            yy += 18;
+        }
+        return yy;
+    }
+
     private String defaultParam(Preset p) {
         if (p.type == Preset.Type.LEVEL) {
             return Integer.toString(p.count);
@@ -176,6 +239,14 @@ final class PresetsTab {
     }
 
     // ------------------------------------------------------------ редактор
+
+    void select(String id) {
+        var p = PresetStore.find(id);
+        if (p != null) {
+            selected = p;
+            editing = null;
+        }
+    }
 
     void openNewEditor() {
         startNew();

@@ -269,7 +269,7 @@
   "baritonestudio.task.follow_any": "Follow a player",
   "baritonestudio.task.surface": "Go to surface",
   "baritonestudio.set.parkour": "Jump over gaps (parkour)",
-  "baritonestudio.hud.learning": "Human-Mode training: tree %1$s of %2$s (logs: %3$s) — chop by hand",
+  "baritonestudio.hud.learning": "Human-Mode training: recorded %1$s of %2$s, %4$s left to chop (logs in current tree: %3$s)",
   "baritonestudio.msg.learn_start": "Training started. Chop %s trees by hand as usual: the mod records how you aim the mouse, from what distance you hit and how long you pause.",
   "baritonestudio.msg.learn_stop": "Training stopped. Profiles recorded: %s.",
   "baritonestudio.msg.learn_tree": "Tree %1$s of %2$s recorded (logs: %3$s).",
@@ -279,5 +279,16 @@
   "baritonestudio.set.human_profiles_count": "Profiles recorded: %1$s of %2$s",
   "baritonestudio.set.learn_start": "Training: chop %s trees",
   "baritonestudio.set.learn_stop": "Stop training",
-  "baritonestudio.set.learn_reset": "Delete recorded profiles"
+  "baritonestudio.set.learn_reset": "Delete recorded profiles",
+  "baritonestudio.set.human_profiles_where": "The tree style is switched on and recorded in the Presets menu → Wood.",
+  "baritonestudio.wood.title": "Human-Mode: your style",
+  "baritonestudio.wood.use": "Chop in your own style",
+  "baritonestudio.wood.progress": "Trees recorded: %1$s of %2$s",
+  "baritonestudio.wood.left": "Left to chop: %s",
+  "baritonestudio.wood.current": "Logs in the current tree: %s",
+  "baritonestudio.wood.ready": "Style recorded — the bot chops trees like you.",
+  "baritonestudio.wood.relearn": "Record again",
+  "baritonestudio.wood.hint": "Press Start and chop %s more trees by hand as usual — the mod learns how you aim, hit and pause.",
+  "baritonestudio.wood.start": "Start training (%s trees)",
+  "baritonestudio.wood.continue": "Continue training (%s left)"
 }

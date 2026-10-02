@@ -233,6 +233,11 @@ public final class HumanLearner {
         if (HumanProfiles.all().size() >= targetTrees) {
             active = false;
             reset();
+            // обучение окончено – сразу включаем рубку своим почерком
+            var cfg = dev.baritonestudio.config.ModConfig.get();
+            cfg.humanMode = true;
+            cfg.humanProfiles = true;
+            dev.baritonestudio.config.ModConfig.save();
             Studio.get().say(Formatting.GREEN, L.t("msg.learn_done", HumanProfiles.all().size()));
         }
     }
