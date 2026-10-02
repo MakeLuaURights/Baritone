@@ -422,6 +422,7 @@ public final class Studio {
     public void onDisconnect() {
         dev.baritonestudio.human.HumanLearner.stop();
         dev.baritonestudio.human.HumanStyle.reset();
+        dev.baritonestudio.task.MineTask.resetAntiXray();
         leaveTriggered = false;
         selecting = false;
         selA = selB = null;

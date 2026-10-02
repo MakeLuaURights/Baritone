@@ -6,6 +6,7 @@ import dev.baritonestudio.task.Human;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.block.BlockState;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
@@ -18,6 +19,7 @@ public final class PathFollower {
     private final Path path;
     private int idx = 0;
     private int stuck = 0;
+    private int doorTicks = 0;
     private int pillarWait = 0;
     private int mineTicks = 0;
     private int moveTicks = 0;
@@ -54,6 +56,7 @@ public final class PathFollower {
                 mineTicks = 0;
                 stuck = 0;
                 pillarWait = 0;
+                doorTicks = 0;
                 moveTicks = 0;
                 awayTicks = 0;
                 jumped = false;
@@ -111,6 +114,22 @@ public final class PathFollower {
 
         // 1) освобождаем клетки, мешающие шагу
         for (BlockPos c : cellsToClear(cur, next, mv)) {
+            BlockState ds = a.world().getBlockState(c);
+            if (Terrain.openable(ds) && !ds.getCollisionShape(a.world(), c).isEmpty()) {
+                // закрытая дверь/калитка на пути – открываем
+                if (++doorTicks > 60) {
+                    lastError = "не открыть дверь";
+                    return State.FAILED;
+                }
+                Vec3d cc = Vec3d.ofCenter(c);
+                a.lookAt(cc);
+                if (doorTicks % 6 == 1 && a.eyeDistance(c) <= 4.5) {
+                    a.useOn(new net.minecraft.util.hit.BlockHitResult(cc, Direction.UP, c, false));
+                } else if (a.eyeDistance(c) > 2.0) {
+                    a.forward(true);
+                }
+                return State.RUNNING;
+            }
             if (!t.passable(c.getX(), c.getY(), c.getZ())) {
                 if (!t.breakable(c.getX(), c.getY(), c.getZ())) {
                     lastError = "путь заблокирован";
@@ -251,6 +270,12 @@ public final class PathFollower {
 
         // 3) застревание
         if (pos.squaredDistanceTo(lastPos) < 0.0009) {
+            // лёгкая «встряска»: прыжок и шаг вбок, прежде чем сдаться
+            if (stuck > 20 && grounded && mv != Move.PILLAR && mv != Move.DIG_DOWN) {
+                a.jump(true);
+                if ((stuck / 8) % 2 == 0) a.left(true);
+                else a.right(true);
+            }
             if (++stuck > 60) {
                 lastError = "застрял";
                 return State.FAILED;

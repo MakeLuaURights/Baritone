@@ -86,6 +86,7 @@ public final class Navigator {
         };
         boolean scaffold = cfg.allowScaffold && breakMode != BreakMode.NEVER;
         Terrain t = new Terrain(a.world(), canBreak, scaffold, cfg.maxFall);
+        t.scanHostiles(a.player());
         t.canSprint = cfg.sprint && a.player().getHungerManager().canSprint();
         t.allowParkour = cfg.allowParkour;
         return cached ? t.cached() : t;

@@ -290,5 +290,6 @@
   "baritonestudio.wood.relearn": "Записать заново",
   "baritonestudio.wood.hint": "Нажмите «Начать» и срубите вручную ещё %s деревьев как обычно — мод запомнит, как вы целитесь, бьёте и делаете паузы.",
   "baritonestudio.wood.start": "Начать обучение (%s деревьев)",
-  "baritonestudio.wood.continue": "Продолжить обучение (осталось %s)"
+  "baritonestudio.wood.continue": "Продолжить обучение (осталось %s)",
+  "baritonestudio.status.antixray": "Обнаружены фейк-руды (анти-xray сервер): копаю только открытые блоки"
 }

@@ -23,6 +23,49 @@ public final class Terrain {
     public boolean canSprint = true;
     /** Разрешены ли прыжки через пропасти (parkour). */
     public boolean allowParkour = false;
+    /** Позиции враждебных мобов: клетки рядом с ними дороже, чтобы путь огибал их. */
+    public java.util.List<net.minecraft.util.math.Vec3d> hostiles = java.util.List.of();
+
+    public void scanHostiles(net.minecraft.client.network.ClientPlayerEntity p) {
+        java.util.List<net.minecraft.util.math.Vec3d> l = new java.util.ArrayList<>();
+        for (var e : world.getEntitiesByClass(net.minecraft.entity.mob.HostileEntity.class, p.getBoundingBox().expand(40), e -> e.isAlive())) {
+            l.add(e.getEntityPos());
+            if (l.size() >= 24) break;
+        }
+        hostiles = l;
+    }
+
+    /** Закрытая дверь/калитка, которую можно открыть ПКМ (железные двери – нет). */
+    public static boolean openable(BlockState s) {
+        if (s.getBlock() == Blocks.IRON_DOOR) return false;
+        return s.isIn(BlockTags.WOODEN_DOORS) || s.isIn(BlockTags.FENCE_GATES) || (s.isIn(BlockTags.DOORS) && s.getBlock() != Blocks.IRON_DOOR);
+    }
+
+    /** Надбавка за вход в клетку: соседство лавы/кактуса, медленная земля, закрытая дверь, враждебные мобы рядом. */
+    public double entryPenalty(int x, int y, int z) {
+        double c = 0;
+        BlockState below = state(x, y - 1, z);
+        Block bb = below.getBlock();
+        if (bb == Blocks.SOUL_SAND || bb == Blocks.HONEY_BLOCK || bb == Blocks.SLIME_BLOCK) c += 4;
+        if (bb == Blocks.SOUL_SOIL) c += 1;
+        for (int i = 0; i < 4; i++) {
+            Direction d = Direction.fromHorizontalQuarterTurns(i);
+            for (int dy = 0; dy <= 1; dy++) {
+                BlockState n = state(x + d.getOffsetX(), y + dy, z + d.getOffsetZ());
+                if (isLava(n)) c += 8;
+                else if (n.getBlock() == Blocks.CACTUS || n.getBlock() == Blocks.FIRE || n.getBlock() == Blocks.SOUL_FIRE) c += 6;
+            }
+        }
+        if (openable(state(x, y, z))) c += 2;
+        for (var h : hostiles) {
+            double dx = h.x - (x + 0.5), dz = h.z - (z + 0.5), dy = h.y - y;
+            if (dy > -2 && dy < 3) {
+                double d2 = dx * dx + dz * dz;
+                if (d2 < 16) c += 10 * (1 - Math.sqrt(d2) / 4);
+            }
+        }
+        return c;
+    }
     private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<BlockState> cache = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
     private boolean useCache;
     private final java.util.HashMap<BlockState, Double> breakCache = new java.util.HashMap<>();
@@ -130,6 +173,7 @@ public final class Terrain {
         if (harmful(s)) return false;
         if (avoidWater && isWater(s)) return false;
         if (s.isIn(BlockTags.CLIMBABLE)) return true;
+        if (openable(s)) return true; // откроем по пути
         return s.getCollisionShape(world, m.set(x, y, z)).isEmpty();
     }
 

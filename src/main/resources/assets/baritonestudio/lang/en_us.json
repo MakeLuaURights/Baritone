@@ -290,5 +290,6 @@
   "baritonestudio.wood.relearn": "Record again",
   "baritonestudio.wood.hint": "Press Start and chop %s more trees by hand as usual — the mod learns how you aim, hit and pause.",
   "baritonestudio.wood.start": "Start training (%s trees)",
-  "baritonestudio.wood.continue": "Continue training (%s left)"
+  "baritonestudio.wood.continue": "Continue training (%s left)",
+  "baritonestudio.status.antixray": "Fake ores detected (anti-xray server): mining only exposed blocks"
 }

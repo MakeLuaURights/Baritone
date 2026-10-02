@@ -230,6 +230,7 @@ public final class PathSearch {
     private void relax(Node from, int x, int y, int z, double cost, Move move) {
         if (cost >= Costs.INF) return;
         long key = BlockPos.asLong(x, y, z);
+        cost += t.entryPenalty(x, y, z);
         if (favored != null && favored.contains(key)) cost *= 0.5; // не метаться: вернее идти по уже выбранному маршруту
         Node n = nodes.get(key);
         double g = from.g + cost;

@@ -43,6 +43,41 @@ public final class MineTask extends Task {
     private boolean lastWasLog;
     private BlockPos lastMined;
     private String status = "";
+    /** Анти-xray: сервер подсовывает фейковые руды; после двух разоблачений ищем только открытые блоки. */
+    private static boolean antiXray;
+    private int fakes;
+    private boolean lastWasOre, checkDrop;
+
+    public static boolean antiXray() {
+        return antiXray;
+    }
+
+    public static void resetAntiXray() {
+        antiXray = false;
+    }
+
+    private static boolean isOre(BlockState st) {
+        String id = net.minecraft.registry.Registries.BLOCK.getId(st.getBlock()).getPath();
+        return id.endsWith("_ore") || id.equals("ancient_debris");
+    }
+
+    private static boolean isFiller(net.minecraft.item.ItemStack s) {
+        return s.isOf(Items.COBBLESTONE) || s.isOf(Items.COBBLED_DEEPSLATE) || s.isOf(Items.STONE) || s.isOf(Items.DIRT)
+                || s.isOf(Items.NETHERRACK) || s.isOf(Items.END_STONE) || s.isOf(Items.TUFF) || s.isOf(Items.DEEPSLATE)
+                || s.isOf(Items.GRANITE) || s.isOf(Items.DIORITE) || s.isOf(Items.ANDESITE) || s.isOf(Items.BLACKSTONE)
+                || s.isOf(Items.GRAVEL) || s.isOf(Items.SAND);
+    }
+
+    private void noteFake(Actor a, BlockPos pos) {
+        fakes++;
+        bad.add(pos);
+        Storage.LOG.info("MineTask[{}]: фейк-руда в {} (всего {})", title, pos.toShortString(), fakes);
+        if (fakes >= 2 && !antiXray) {
+            antiXray = true;
+            a.player().sendMessage(net.minecraft.text.Text.literal("[Baritone Studio] " + L.t("status.antixray"))
+                    .formatted(net.minecraft.util.Formatting.GOLD), false);
+        }
+    }
 
     private java.util.function.Predicate<BlockPos> region;
     private boolean topDown;
@@ -109,6 +144,7 @@ public final class MineTask extends Task {
             case MINE -> mine(a);
             case SETTLE -> {
                 if (--ticks <= 0) {
+                    if (checkDrop) verifyOreDrop(a);
                     phase = replant && lastMined != null ? Phase.REPLANT : (cfg.collectDrops ? Phase.COLLECT : Phase.SCAN);
                     collector.reset();
                     ticks = 0;
@@ -149,7 +185,7 @@ public final class MineTask extends Task {
         Terrain t = new Terrain(a.world(), true, false, cfg.maxFall);
         bad.addAll(a.placedScaffold); // собственные опоры – не цели
         cands = BlockScanner.nearestN(a.world(), a.player().getBlockPos(), radius, matcher, bad, t, region, topDown,
-                cfg.legitMine && region == null, 8);
+                (cfg.legitMine || antiXray) && region == null, 8);
         if (cands.isEmpty() && !bad.isEmpty() && retries < 2) {
             // «чёрный список» мог набраться из-за временных сбоев – даём второй шанс
             retries++;
@@ -244,12 +280,19 @@ public final class MineTask extends Task {
         BlockState st = a.world().getBlockState(target);
         if (!matcher.test(st)) {
             // блок исчез: либо сломали, либо кто-то другой
+            if (!st.isAir() && !st.isReplaceable() && st.getFluidState().isEmpty()) {
+                // вместо руды сервер вернул обычный блок – это была фейк-руда (анти-xray)
+                noteFake(a, target);
+                phase = Phase.SCAN;
+                return;
+            }
             onMined(a, st);
             return;
         }
         status = L.t("status.mining", st.getBlock().getName().getString());
         lastHardness = st.getHardness(a.world(), target);
         lastWasLog = st.isIn(net.minecraft.registry.tag.BlockTags.LOGS);
+        lastWasOre = isOre(st);
         Actor.MineResult r = a.mine(target);
         if (r == Actor.MineResult.FAIL) {
             // не дотянулись – пробуем подойти
@@ -273,10 +316,23 @@ public final class MineTask extends Task {
         mined++;
         lastMined = target;
         expectDrop = lastHardness > 0f; // у мгновенно ломающихся (трава) дропа обычно нет
+        checkDrop = lastWasOre && expectDrop;
         phase = Phase.SETTLE;
         var styled = lastWasLog ? dev.baritonestudio.human.HumanStyle.current(a.world().getTime()) : null;
         ticks = styled != null ? Math.max(1, styled.sampleThink(dev.baritonestudio.human.HumanStyle.rnd()))
                 : Human.get().jitter(2) + (Human.get().on() ? Human.get().thinkPause() : 0);
+        if (checkDrop) ticks += 3 + a.latencyTicks();
+    }
+
+    /** Руда, из которой выпал только булыжник/камень – подделка: не считаем её добытой. */
+    private void verifyOreDrop(Actor a) {
+        checkDrop = false;
+        var box = new net.minecraft.util.math.Box(lastMined).expand(2.5);
+        var items = a.world().getEntitiesByClass(net.minecraft.entity.ItemEntity.class, box, e -> true);
+        if (items.isEmpty()) return;
+        for (var e : items) if (!isFiller(e.getStack())) return;
+        mined = Math.max(0, mined - 1);
+        noteFake(a, lastMined);
     }
 
     private void replant(Actor a, ModConfig cfg) {

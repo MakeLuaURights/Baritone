@@ -76,6 +76,7 @@ public class StudioClientTest implements FabricClientGameTest {
             }
             if (System.getProperty("bs.only.movement") != null) {
                 testMovement(ctx, srv, base);
+                testFakesAndDoors(ctx, srv, base);
                 return;
             }
             // ---------- ходьба с прыжками
@@ -129,6 +130,9 @@ public class StudioClientTest implements FabricClientGameTest {
                 System.out.println("[E2E] SERVER DUMP " + sdump);
             }
             check(dia >= 1, "нет алмаза: " + dia);
+
+            // ---------- двери и фейк-руды (анти-xray)
+            testFakesAndDoors(ctx, srv, base);
 
             // ---------- высокое дерево (нужен столб из блоков)
             testTree(ctx, srv, base);
@@ -391,6 +395,54 @@ public class StudioClientTest implements FabricClientGameTest {
     }
 
     /** Алгоритмы движения: parkour, лестницы, дальний путь со сшивкой частей, выбор «дешёвого» маршрута. */
+    private void testFakesAndDoors(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
+        var cfg = dev.baritonestudio.config.ModConfig.get();
+        srv.runCommand("clear @a");
+        srv.runCommand("give @a minecraft:diamond_pickaxe");
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- дверь в стене: ломать нельзя, надо открыть
+        BlockPos wall = base.add(-4, 0, 14);
+        fill(srv, wall, wall.add(8, 3, 0), "stone");
+        srv.runCommand("setblock " + fmt(wall.add(4, 0, 0)) + " minecraft:oak_door[half=lower,facing=south]");
+        srv.runCommand("setblock " + fmt(wall.add(4, 1, 0)) + " minecraft:oak_door[half=upper,facing=south]");
+        ctx.waitTicks(20);
+        ctx.runOnClient(mc -> cfg.allowBreak = false);
+        BlockPos beyond = wall.add(4, 0, 4);
+        ctx.runOnClient(mc -> Studio.get().startGoto(beyond.getX(), beyond.getY(), beyond.getZ()));
+        waitTaskEnd(ctx, 900, "Проход через дверь");
+        BlockPos dend = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        System.out.println("[E2E] door end=" + dend);
+        check(dend.getSquaredDistance(beyond) <= 2, "не прошёл через дверь: " + dend);
+        ctx.runOnClient(mc -> cfg.allowBreak = true);
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- фейк-алмазы: на клиенте руда, на сервере камень; настоящий алмаз — дальше
+        BlockPos mass = base.add(-30, 0, -4);
+        fill(srv, mass, mass.add(8, 2, 8), "stone");
+        srv.runCommand("setblock " + fmt(mass.add(7, 1, 7)) + " minecraft:diamond_ore");
+        srv.runCommand("setblock " + fmt(mass.add(7, 2, 7)) + " minecraft:air"); // настоящий алмаз открыт – его видно
+        ctx.waitTicks(15);
+        ctx.runOnClient(mc -> {
+            for (int[] f : new int[][]{{1, 1, 1}, {2, 1, 1}, {1, 1, 2}, {3, 1, 2}}) {
+                mc.world.setBlockState(mass.add(f[0], f[1], f[2]), net.minecraft.block.Blocks.DIAMOND_ORE.getDefaultState(), 0);
+            }
+        });
+        tp(srv, mass.add(-2, 0, 1));
+        ctx.waitTicks(10);
+        ctx.runOnClient(mc -> Studio.get().startPreset(PresetStore.find("diamond"), 1, 25));
+        waitTaskEnd(ctx, 4800, "Добыча алмазов среди фейков");
+        int dia = ctx.computeOnClient(mc -> mc.player.getInventory().count(Items.DIAMOND));
+        System.out.println("[E2E] fake test diamonds=" + dia + " antiXray=" + dev.baritonestudio.task.MineTask.antiXray());
+        check(dia >= 1, "настоящий алмаз не добыт: " + dia);
+        check(dev.baritonestudio.task.MineTask.antiXray(), "фейк-руды не распознаны");
+        ctx.runOnClient(mc -> dev.baritonestudio.task.MineTask.resetAntiXray());
+        tp(srv, base);
+        ctx.waitTicks(10);
+    }
+
     private void testMovement(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
         var cfg = dev.baritonestudio.config.ModConfig.get();
         srv.runCommand("clear @a");
