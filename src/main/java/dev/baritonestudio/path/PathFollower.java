@@ -115,7 +115,7 @@ public final class PathFollower {
         // 1) освобождаем клетки, мешающие шагу
         for (BlockPos c : cellsToClear(cur, next, mv)) {
             BlockState ds = a.world().getBlockState(c);
-            if (Terrain.openable(ds) && !ds.getCollisionShape(a.world(), c).isEmpty()) {
+            if (Terrain.openable(ds) && ds.contains(net.minecraft.state.property.Properties.OPEN) && !ds.get(net.minecraft.state.property.Properties.OPEN)) {
                 // закрытая дверь/калитка на пути – открываем
                 if (++doorTicks > 60) {
                     lastError = "не открыть дверь";
@@ -124,7 +124,8 @@ public final class PathFollower {
                 Vec3d cc = Vec3d.ofCenter(c);
                 a.lookAt(cc);
                 if (doorTicks % 6 == 1 && a.eyeDistance(c) <= 4.5) {
-                    a.useOn(new net.minecraft.util.hit.BlockHitResult(cc, Direction.UP, c, false));
+                    var dr = a.useOn(new net.minecraft.util.hit.BlockHitResult(cc, Direction.UP, c, false));
+                    dev.baritonestudio.util.Storage.LOG.info("Дверь {}: {} -> {}", c.toShortString(), ds, dr);
                 } else if (a.eyeDistance(c) > 2.0) {
                     a.forward(true);
                 }
