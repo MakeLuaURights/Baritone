@@ -267,5 +267,6 @@
   "baritonestudio.task.fill": "Заполнение: %s",
   "baritonestudio.task.follow": "Следовать за %s",
   "baritonestudio.task.follow_any": "Следовать за игроком",
-  "baritonestudio.task.surface": "Выход на поверхность"
+  "baritonestudio.task.surface": "Выход на поверхность",
+  "baritonestudio.set.parkour": "Прыгать через пропасти (parkour)"
 }

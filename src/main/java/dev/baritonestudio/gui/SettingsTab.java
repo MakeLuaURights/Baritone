@@ -87,6 +87,8 @@ final class SettingsTab {
         by += 18;
         s.toggle(bx, by, cw, L.t("set.allow_scaffold"), c.allowScaffold, v -> c.allowScaffold = v);
         by += 18;
+        s.toggle(bx, by, cw, L.t("set.parkour"), c.allowParkour, v -> c.allowParkour = v);
+        by += 18;
         s.toggle(bx, by, cw, L.t("set.sprint"), c.sprint, v -> c.sprint = v);
         by += 18;
         s.toggle(bx, by, cw, L.t("set.legit"), c.legitMine, v -> c.legitMine = v);

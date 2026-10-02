@@ -20,6 +20,10 @@ public final class PathFollower {
     private int stuck = 0;
     private int pillarWait = 0;
     private int mineTicks = 0;
+    private int moveTicks = 0;
+    private int awayTicks = 0;
+    private int chunkWait = 0;
+    private boolean jumped;
     private int jumpIdx = -1;
     private double jumpAt = 1.45;
     private Vec3d lastPos = Vec3d.ZERO;
@@ -50,6 +54,17 @@ public final class PathFollower {
                 mineTicks = 0;
                 stuck = 0;
                 pillarWait = 0;
+                moveTicks = 0;
+                awayTicks = 0;
+                jumped = false;
+                break;
+            }
+        }
+        // отбросило назад (удар, телепорт): возвращаемся к соответствующему узлу
+        for (int j = Math.max(0, idx - 6); j < idx; j++) {
+            if (nodes.get(j).equals(pb) && grounded) {
+                idx = j;
+                moveTicks = 0;
                 break;
             }
         }
@@ -62,11 +77,35 @@ public final class PathFollower {
         BlockPos next = nodes.get(idx + 1);
         Move mv = path.moves().get(idx + 1);
 
-        // сильно сошли с маршрута
+        // сошли с маршрута: >3 блоков – сразу, >2 блоков дольше 10 секунд – тоже (пороги из Baritone)
         Vec3d pos = p.getEntityPos();
-        double offCourse = Math.min(horiz(pos, cur), horiz(pos, next));
-        if (offCourse > 2.6 || Math.abs(pos.y - cur.getY()) > 3.5 && grounded) {
+        double offCourse = distToSegment(pos, cur, next);
+        if (offCourse > 3.0 || Math.abs(pos.y - cur.getY()) > 4.0 && grounded) {
             lastError = "сошёл с маршрута";
+            return State.FAILED;
+        }
+        if (offCourse > 2.0) {
+            if (++awayTicks > 200) {
+                lastError = "слишком долго вне маршрута";
+                return State.FAILED;
+            }
+        } else {
+            awayTicks = 0;
+        }
+
+        // не двигаемся, пока не загрузился чанк, в который собираемся идти
+        if (!t.loaded(next.getX(), next.getZ())) {
+            if (++chunkWait > 200) {
+                lastError = "чанк не загрузился";
+                return State.FAILED;
+            }
+            return State.RUNNING;
+        }
+        chunkWait = 0;
+
+        // таймаут хода: он не должен занимать намного дольше, чем рассчитано
+        if (++moveTicks > 260 && mv != Move.PILLAR) {
+            lastError = "ход занял слишком много времени";
             return State.FAILED;
         }
 
@@ -125,6 +164,37 @@ public final class PathFollower {
                 }
                 return State.RUNNING;
             }
+            case PARKOUR -> {
+                // разбег по прямой и прыжок с края; в воздухе держим курс на точку приземления
+                int dx = Integer.signum(next.getX() - cur.getX()), dz = Integer.signum(next.getZ() - cur.getZ());
+                double along = (pos.x - (cur.getX() + 0.5)) * dx + (pos.z - (cur.getZ() + 0.5)) * dz;
+                a.lookAt(new Vec3d(dest.x, p.getEyeY(), dest.z));
+                a.forward(true);
+                a.sprint(true);
+                if (!jumped && p.isOnGround() && along >= 0.38) {
+                    a.jump(true);
+                    jumped = true;
+                }
+                if (jumped && p.isOnGround() && !nodes.get(idx).equals(pb) && pos.y < cur.getY() - 0.2) {
+                    lastError = "не допрыгнул";
+                    return State.FAILED;
+                }
+                if (pos.y < cur.getY() - 1.6) {
+                    lastError = "упал при прыжке";
+                    return State.FAILED;
+                }
+                if (jumped && p.isOnGround() && along > 0.5 && hd > 1.2 && pos.y <= cur.getY() + 0.01) jumped = false; // приземлились раньше – можно повторить
+                return State.RUNNING;
+            }
+            case CLIMB_UP -> {
+                a.lookAt(new Vec3d(dest.x, p.getEyeY(), dest.z));
+                if (hd > 0.3) a.forward(true);
+                a.jump(true);
+            }
+            case CLIMB_DOWN -> {
+                a.lookAt(new Vec3d(dest.x, p.getEyeY(), dest.z));
+                if (hd > 0.3) a.forward(true);
+            }
             case DIG_DOWN -> {
                 if (hd > 0.15) {
                     a.lookAt(dest);
@@ -150,10 +220,15 @@ public final class PathFollower {
                     rem = a.lookAt(lookDest);
                 }
                 boolean stopForward = mv == Move.DESCEND && p.getBlockX() == next.getX() && p.getBlockZ() == next.getZ() && !grounded;
-                if (!stopForward && !pause && rem < 60f) {
+                boolean landedOnDest = (mv == Move.ASCEND || mv == Move.DESCEND) && grounded && hd < 0.3 && Math.abs(pos.y - next.getY()) < 0.3;
+                if (!stopForward && !pause && !landedOnDest && rem < 60f) {
                     a.forward(true);
-                    boolean turnAhead = h.on() && idx + 2 < nodes.size() && hd < 2.3 && turnsAfter(nodes.get(idx), next, nodes.get(idx + 2));
-                    if (ModConfig.get().sprint && straight && !inWater && !turnAhead && p.getHungerManager().canSprint() && h.sprintAllowed()) a.sprint(true);
+                    boolean last = idx + 2 >= nodes.size();
+                    boolean turnAhead = idx + 2 < nodes.size() && hd < 2.3 && turnsAfter(nodes.get(idx), next, nodes.get(idx + 2));
+                    // в прыжке на ступеньку бежим только если дальше путь продолжается прямо – иначе перелетим цель
+                    boolean ascendChain = mv == Move.ASCEND && !last && !turnAhead && path.moves().get(idx + 2) != Move.DESCEND;
+                    boolean endingSoon = last && hd < 2.0;
+                    if (ModConfig.get().sprint && (straight || ascendChain) && !inWater && !(h.on() && turnAhead) && !endingSoon && p.getHungerManager().canSprint() && h.sprintAllowed()) a.sprint(true);
                     // лёгкое «виляние» вбок, если по бокам твёрдая земля
                     int sd = h.strafe(straight && grounded && !inWater && hd > 1.5);
                     if (sd != 0) {
@@ -185,6 +260,16 @@ public final class PathFollower {
             lastPos = pos;
         }
         return State.RUNNING;
+    }
+
+    /** Расстояние от точки до отрезка между центрами узлов (в горизонтали). */
+    private static double distToSegment(Vec3d p, BlockPos a, BlockPos b) {
+        double ax = a.getX() + 0.5, az = a.getZ() + 0.5, bx = b.getX() + 0.5, bz = b.getZ() + 0.5;
+        double dx = bx - ax, dz = bz - az;
+        double len2 = dx * dx + dz * dz;
+        double t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.z - az) * dz) / len2));
+        double cx = ax + dx * t, cz = az + dz * t;
+        return Math.sqrt((p.x - cx) * (p.x - cx) + (p.z - cz) * (p.z - cz));
     }
 
     private static boolean turnsAfter(BlockPos a, BlockPos b, BlockPos c) {

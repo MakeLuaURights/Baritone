@@ -8,5 +8,9 @@ public enum Move {
     ASCEND,
     DESCEND,
     DIG_DOWN,
-    PILLAR
+    PILLAR,
+    /** Прыжок через пропасть (parkour). */
+    PARKOUR,
+    CLIMB_UP,
+    CLIMB_DOWN
 }

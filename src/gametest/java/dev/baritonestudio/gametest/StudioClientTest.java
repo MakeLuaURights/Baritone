@@ -70,6 +70,10 @@ public class StudioClientTest implements FabricClientGameTest {
             ctx.getInput().pressKey(Keys.OPEN);
             ctx.waitFor(mc -> mc.currentScreen == null);
 
+            if (System.getProperty("bs.only.movement") != null) {
+                testMovement(ctx, srv, base);
+                return;
+            }
             // ---------- ходьба с прыжками
             srv.runCommand("give @a minecraft:diamond_pickaxe");
             fill(srv, base.add(3, 0, -3), base.add(3, 0, 3), "stone");
@@ -197,6 +201,8 @@ public class StudioClientTest implements FabricClientGameTest {
         System.out.println("[E2E] water avoided ok");
         tp(srv, base);
         ctx.waitTicks(10);
+
+        testMovement(ctx, srv, base);
 
         // ---- недостижимая цель (остров посреди воды): быстрый отказ, а не блуждание
         BlockPos isl = base.add(-14, 0, 14);
@@ -375,6 +381,95 @@ public class StudioClientTest implements FabricClientGameTest {
         System.out.println("[E2E] food after: " + food);
         check(food > 8, "автоеда не сработала: " + food);
         ctx.runOnClient(mc -> Studio.get().stopAll(null));
+    }
+
+    /** Алгоритмы движения: parkour, лестницы, дальний путь со сшивкой частей, выбор «дешёвого» маршрута. */
+    private void testMovement(ClientGameTestContext ctx, TestServerContext srv, BlockPos base) {
+        var cfg = dev.baritonestudio.config.ModConfig.get();
+        srv.runCommand("clear @a");
+        srv.runCommand("give @a minecraft:diamond_pickaxe");
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- parkour: ров шириной 2 блока и длиной 80, обход бы занял минуту
+        java.util.concurrent.atomic.AtomicInteger minY = new java.util.concurrent.atomic.AtomicInteger(Integer.MAX_VALUE);
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            if (mc.player != null) minY.accumulateAndGet(mc.player.getBlockY(), Math::min);
+        });
+        BlockPos trench = base.add(6, -1, -40);
+        fill(srv, trench, trench.add(1, -3, 80), "air");
+        ctx.waitTicks(30);
+        minY.set(Integer.MAX_VALUE);
+        BlockPos pgoal = base.add(12, 0, 0);
+        ctx.runOnClient(mc -> {
+            cfg.allowParkour = true;
+            Studio.get().startGoto(pgoal.getX(), pgoal.getY(), pgoal.getZ());
+        });
+        waitTaskEnd(ctx, 600, "Прыжок через ров");
+        BlockPos pend = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        System.out.println("[E2E] parkour end=" + pend + " minY=" + minY.get() + " base.y=" + base.getY());
+        check(pend.getSquaredDistance(pgoal) <= 2, "не оказался на другой стороне рва: " + pend);
+        check(minY.get() >= base.getY(), "упал в ров: minY=" + minY.get());
+        ctx.runOnClient(mc -> cfg.allowParkour = false);
+        fill(srv, trench, trench.add(1, -3, 80), "dirt");
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- лестница: стена 8 блоков, ломать нельзя, столба нет
+        BlockPos wall = base.add(-12, 0, -6);
+        fill(srv, wall.add(0, -1, 0), wall.add(0, 7, 0), "stone");
+        fill(srv, wall.add(-1, 0, 0), wall.add(-1, 7, 0), "ladder[facing=west]");
+        fill(srv, wall.add(-1, -1, 0), wall.add(-1, -1, 0), "stone");
+        ctx.waitTicks(20);
+        ctx.runOnClient(mc -> cfg.allowBreak = false);
+        BlockPos top = wall.add(0, 8, 0);
+        ctx.runOnClient(mc -> Studio.get().startGoto(top.getX(), top.getY(), top.getZ()));
+        waitTaskEnd(ctx, 900, "Подъём по лестнице");
+        BlockPos lend = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        System.out.println("[E2E] ladder end=" + lend);
+        check(lend.getSquaredDistance(top) <= 2, "не поднялся по лестнице: " + lend);
+        ctx.runOnClient(mc -> cfg.allowBreak = true);
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- дальний путь по плоской местности (частичные пути + сшивка)
+        BlockPos far = base.add(110, 0, 0);
+        long t0 = ctx.computeOnClient(mc -> mc.world.getTime());
+        ctx.runOnClient(mc -> Studio.get().startGoto(far.getX(), far.getY(), far.getZ()));
+        waitTaskEnd(ctx, 1800, "Дальний путь");
+        long t1 = ctx.computeOnClient(mc -> mc.world.getTime());
+        System.out.println("[E2E] far trip ticks=" + (t1 - t0));
+        check(t1 - t0 < 1000, "дальний путь слишком долгий: " + (t1 - t0));
+        tp(srv, base);
+        ctx.waitTicks(10);
+
+        // ---- выбор маршрута по цене: сверхтвёрдая стена дороже обхода, тонкая каменная – дешевле
+        BlockPos hard = base.add(0, 0, 30);
+        fill(srv, hard.add(-12, 0, 0), hard.add(12, 1, 2), "ancient_debris");
+        BlockPos hardGoal = hard.add(0, 0, 8);
+        tp(srv, hard.add(0, 0, -6));
+        ctx.waitTicks(15);
+        ctx.runOnClient(mc -> Studio.get().startGoto(hardGoal.getX(), hardGoal.getY(), hardGoal.getZ()));
+        waitTaskEnd(ctx, 1500, "Обход твёрдой стены");
+        boolean intact = ctx.computeOnClient(mc -> {
+            for (BlockPos p : BlockPos.iterate(hard.add(-12, 0, 0), hard.add(12, 1, 2))) if (mc.world.getBlockState(p).isAir()) return false;
+            return true;
+        });
+        check(intact, "бот ломал древние обломки вместо обхода");
+        fill(srv, hard.add(-12, 0, 0), hard.add(12, 1, 2), "air");
+
+        BlockPos thin = base.add(40, 0, 30);
+        fill(srv, thin.add(-12, 0, 0), thin.add(12, 1, 0), "stone");
+        BlockPos thinGoal = thin.add(0, 0, 5);
+        tp(srv, thin.add(0, 0, -5));
+        ctx.waitTicks(15);
+        ctx.runOnClient(mc -> Studio.get().startGoto(thinGoal.getX(), thinGoal.getY(), thinGoal.getZ()));
+        waitTaskEnd(ctx, 900, "Прохода сквозь тонкую стену");
+        BlockPos thEnd = ctx.computeOnClient(mc -> mc.player.getBlockPos());
+        check(thEnd.getSquaredDistance(thinGoal) <= 2, "не прошёл сквозь тонкую стену: " + thEnd);
+        tp(srv, base);
+        ctx.waitTicks(10);
+        System.out.println("[E2E] movement ok");
     }
 
     private void testRebind(ClientGameTestContext ctx) {

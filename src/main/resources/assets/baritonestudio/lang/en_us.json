@@ -267,5 +267,6 @@
   "baritonestudio.task.fill": "Fill: %s",
   "baritonestudio.task.follow": "Follow %s",
   "baritonestudio.task.follow_any": "Follow a player",
-  "baritonestudio.task.surface": "Go to surface"
+  "baritonestudio.task.surface": "Go to surface",
+  "baritonestudio.set.parkour": "Jump over gaps (parkour)"
 }

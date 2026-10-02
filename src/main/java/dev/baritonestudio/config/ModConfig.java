@@ -42,6 +42,8 @@ public class ModConfig {
     public boolean avoidLava = true;
     /** Добывать только руду, у которой есть открытая грань (как legitMine в Baritone). */
     public boolean legitMine = false;
+    /** Прыжки через пропасти в 1–3 блока (parkour). */
+    public boolean allowParkour = false;
     /** Автоматически есть, когда голод опускается ниже порога. */
     public boolean autoEat = true;
     /** Список блоков, которые путь никогда не ломает (id, #теги через запятую). */

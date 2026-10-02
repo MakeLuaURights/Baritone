@@ -10,6 +10,11 @@ public interface Goal {
     /** Оценка оставшейся стоимости (допустимая эвристика). */
     double heuristic(int x, int y, int z);
 
+    /** Нижняя оценка стоимости вертикального перемещения на dy блоков (вверх – прыжки, вниз – падение). */
+    static double vertical(double dy) {
+        return dy > 0 ? dy * Costs.JUMP_ONE_BLOCK : -dy * Costs.DOWN_PER_BLOCK;
+    }
+
     static double octile(double dx, double dz) {
         dx = Math.abs(dx);
         dz = Math.abs(dz);
@@ -30,7 +35,7 @@ public interface Goal {
         @Override
         public double heuristic(int px, int py, int pz) {
             double dy = y - py;
-            return octile(x - px, z - pz) + (dy > 0 ? dy * 1.6 : -dy * 0.6);
+            return octile(x - px, z - pz) * Costs.HEURISTIC + vertical(dy);
         }
     }
 
@@ -45,7 +50,7 @@ public interface Goal {
         @Override
         public double heuristic(int px, int py, int pz) {
             double dy = Math.abs(y - py);
-            return Math.max(0, octile(x - px, z - pz) + dy * 0.8 - range);
+            return Math.max(0, octile(x - px, z - pz) - range) * Costs.HEURISTIC + vertical(y - py) * 0.8 * (dy > range ? 1 : 0);
         }
     }
 
@@ -58,8 +63,7 @@ public interface Goal {
 
         @Override
         public double heuristic(int px, int py, int pz) {
-            double dy = y - py;
-            return dy > 0 ? dy * 2.5 : -dy * 1.5;
+            return vertical(y - py);
         }
     }
 
@@ -80,9 +84,9 @@ public interface Goal {
         @Override
         public double heuristic(int px, int py, int pz) {
             double dy = target.getY() - py;
-            double h = octile(target.getX() - px, target.getZ() - pz) - 1;
-            if (dy > 1) h += (dy - 1) * 1.6;
-            else if (dy < 0) h += (-dy - 1) * 0.6;
+            double h = Math.max(0, octile(target.getX() - px, target.getZ() - pz) - 1) * Costs.HEURISTIC;
+            if (dy > 1) h += vertical(dy - 1);
+            else if (dy < 0) h += vertical(dy + 1);
             return Math.max(0, h);
         }
     }
@@ -97,7 +101,7 @@ public interface Goal {
 
         @Override
         public double heuristic(int px, int py, int pz) {
-            return Math.max(0, octile(x - px, z - pz) - range);
+            return Math.max(0, octile(x - px, z - pz) - range) * Costs.HEURISTIC;
         }
     }
 
@@ -114,7 +118,7 @@ public interface Goal {
 
         @Override
         public double heuristic(int px, int py, int pz) {
-            return Math.max(0, top(px, pz) - py) * 2.5;
+            return vertical(Math.max(0, top(px, pz) - py));
         }
     }
 
@@ -137,7 +141,7 @@ public interface Goal {
 
         @Override
         public double heuristic(int x, int y, int z) {
-            return h.apply(x, y, z);
+            return h.apply(x, y, z) * Costs.HEURISTIC; // лямбда возвращает расстояние в блоках
         }
     }
 

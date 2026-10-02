@@ -19,6 +19,19 @@ public final class Terrain {
     public final int maxFall;
     public final boolean avoidWater;
     public final boolean avoidLava;
+    /** Можно ли бежать (спринт): влияет на стоимость ходов и допустимость прыжков через пропасти. */
+    public boolean canSprint = true;
+    /** Разрешены ли прыжки через пропасти (parkour). */
+    public boolean allowParkour = false;
+    private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<BlockState> cache = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+    private boolean useCache;
+    private final java.util.HashMap<BlockState, Double> breakCache = new java.util.HashMap<>();
+
+    /** Включить кэш блоков на время одного поиска (мир не должен меняться заметно). */
+    public Terrain cached() {
+        useCache = true;
+        return this;
+    }
 
     public Terrain(ClientWorld world, boolean allowBreak, boolean allowScaffold, int maxFall) {
         this(world, allowBreak, allowScaffold, maxFall,
@@ -47,7 +60,49 @@ public final class Terrain {
     }
 
     public BlockState state(int x, int y, int z) {
-        return world.getBlockState(m.set(x, y, z));
+        if (!useCache) return world.getBlockState(m.set(x, y, z));
+        long key = BlockPos.asLong(x, y, z);
+        BlockState st = cache.get(key);
+        if (st == null) {
+            st = world.getBlockState(m.set(x, y, z));
+            cache.put(key, st);
+        }
+        return st;
+    }
+
+    /** Лестница, лоза, леса и т. п. – по ним можно лазить. */
+    public boolean climbable(int x, int y, int z) {
+        return state(x, y, z).isIn(BlockTags.CLIMBABLE);
+    }
+
+    /** Время ломания блока в тиках лучшим инструментом из инвентаря (как считает Baritone). */
+    public double breakTicks(int x, int y, int z) {
+        BlockState s = state(x, y, z);
+        Double c = breakCache.get(s);
+        if (c != null) return c;
+        double result;
+        var player = net.minecraft.client.MinecraftClient.getInstance().player;
+        float hardness = s.getHardness(world, m.set(x, y, z));
+        if (hardness < 0) {
+            result = Costs.INF;
+        } else if (hardness == 0 || (player != null && player.isCreative())) {
+            result = 1;
+        } else {
+            double bestDelta = 1.0 / hardness / (s.isToolRequired() ? 100.0 : 30.0); // голая рука
+            if (player != null) {
+                var inv = player.getInventory();
+                for (int i = 0; i < 36; i++) {
+                    var st = inv.getStack(i);
+                    if (st.isEmpty()) continue;
+                    double speed = st.getMiningSpeedMultiplier(s);
+                    double div = (!s.isToolRequired() || st.isSuitableFor(s)) ? 30.0 : 100.0;
+                    bestDelta = Math.max(bestDelta, speed / hardness / div);
+                }
+            }
+            result = Math.max(1, Math.ceil(1.0 / bestDelta));
+        }
+        breakCache.put(s, result);
+        return result;
     }
 
     public boolean isLava(BlockState s) {
@@ -74,6 +129,7 @@ public final class Terrain {
         if (isLava(s)) return !avoidLava;
         if (harmful(s)) return false;
         if (avoidWater && isWater(s)) return false;
+        if (s.isIn(BlockTags.CLIMBABLE)) return true;
         return s.getCollisionShape(world, m.set(x, y, z)).isEmpty();
     }
 
@@ -122,18 +178,17 @@ public final class Terrain {
     }
 
     /** Стоимость освобождения клетки: 0 если проходима, иначе стоимость ломания, либо {@link #INF}. */
-    public static final double INF = 1e9;
+    public static final double INF = Costs.INF;
 
     public double clearCost(int x, int y, int z) {
         if (passable(x, y, z)) {
-            if (isLava(state(x, y, z))) return 40.0;
-            return water(x, y, z) ? 1.0 : 0.0;
+            if (isLava(state(x, y, z))) return 200.0;
+            return 0.0;
         }
         if (!breakable(x, y, z)) return INF;
-        BlockState s = state(x, y, z);
-        double c = 4.0 + Math.min(12.0, s.getHardness(world, m.set(x, y, z)) * 1.5);
+        double c = breakTicks(x, y, z) + Costs.BREAK_PENALTY;
         // сыпучий блок над головой – ломаем осторожнее (дороже)
-        if (state(x, y + 1, z).getBlock() instanceof FallingBlock) c += 3;
+        if (state(x, y + 1, z).getBlock() instanceof FallingBlock) c += 12;
         return c;
     }
 
